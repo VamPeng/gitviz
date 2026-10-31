@@ -1,0 +1,69 @@
+{
+  "v": 3,
+  "attachments": {},
+  "boards": {
+    "Main.dc.html": {
+      "h": 860,
+      "is_interactive": true,
+      "title": "主窗口 · 提交历史",
+      "w": 1360,
+      "x": 0,
+      "y": 0
+    },
+    "Welcome.dc.html": {
+      "h": 860,
+      "title": "欢迎页 · 打开仓库",
+      "w": 1360,
+      "x": 1440,
+      "y": 0
+    },
+    "Conflict.dc.html": {
+      "h": 860,
+      "is_interactive": true,
+      "title": "解决合并冲突",
+      "w": 1360,
+      "x": 0,
+      "y": 980
+    },
+    "Settings.dc.html": {
+      "h": 860,
+      "is_interactive": true,
+      "title": "设置",
+      "w": 1360,
+      "x": 1440,
+      "y": 980
+    },
+    "Schemes.dc.html": {
+      "expand": "fill",
+      "h": 1960,
+      "is_interactive": true,
+      "page": "hidden",
+      "title": "配色方案",
+      "w": 1360,
+      "x": 0,
+      "y": 0
+    }
+  },
+  "createdOnFiles": {
+    "at": "2026-10-31T23:10:00Z",
+    "v": 1
+  },
+  "designSystems": [],
+  "launch": {
+    "file": "Main.dc.html",
+    "view": "focused"
+  },
+  "notes": {},
+  "order": [
+    "Main.dc.html",
+    "Welcome.dc.html",
+    "Conflict.dc.html",
+    "Settings.dc.html",
+    "Schemes.dc.html"
+  ],
+  "pages": [
+    { "id": "mvp", "name": "MVP" },
+    { "id": "hidden", "name": "已隐藏" }
+  ],
+  "title": "GitViz 原型"
+}

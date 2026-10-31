@@ -1,0 +1,75 @@
+package gitviz
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Surface
+import androidx.compose.material3.VerticalDivider
+import androidx.compose.runtime.*
+import androidx.compose.ui.ImageComposeScene
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
+import org.jetbrains.skia.EncodedImageFormat
+import java.io.File
+import kotlin.test.Test
+import kotlin.test.assertTrue
+
+/** 离屏渲染主界面，图片存到 build/screens，用来看布局和两种主题，不需要打开窗口。 */
+class ScreenshotTest {
+
+    private fun render(name: String) {
+        val repo = GitRepo.open(File(System.getenv("GITVIZ_SCREENSHOT_REPO") ?: "."))
+        val result = repo.loadCommits()
+        val state = RepoState(repo, result, GraphLayout.compute(result.commits), repo.repository.resolve("HEAD")?.name)
+        val scene = ImageComposeScene(1360 * 2, 860 * 2, Density(2f)) {
+            GitVizTheme {
+                Surface(Modifier.fillMaxSize(), color = Palette.Ground, contentColor = Palette.Ink) {
+                    var selected by remember { mutableStateOf(result.commits.firstOrNull()) }
+                    Row(Modifier.fillMaxSize()) {
+                        Column(Modifier.width(248.dp).fillMaxHeight().background(Palette.Rail)) {
+                            Spacer(Modifier.height(TitleBarHeight))
+                            RefSidebar(result.refs, "", selected?.id, { true }, {}, Modifier.fillMaxWidth().weight(1f))
+                            HorizontalDivider()
+                            Row(Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
+                                IconButton(if (Palette.isDark) Icons.Sun else Icons.Moon) {}
+                            }
+                        }
+                        VerticalDivider()
+                        Column(Modifier.weight(1f).fillMaxHeight()) {
+                            Toolbar(state, false, 18.dp, "", {}, {}, {})
+                            HorizontalDivider()
+                            CommitList(state, result.commits.indices.toList(), selected, rememberLazyListState(), { selected = it },
+                                Modifier.fillMaxWidth().weight(0.46f))
+                            HorizontalDivider()
+                            CommitDetail(repo, selected, {}, Modifier.fillMaxWidth().weight(0.54f))
+                            HorizontalDivider()
+                            StatusBar(state)
+                        }
+                    }
+                }
+            }
+        }
+        // 文件列表和 diff 是异步读的，多渲染几帧等它们出来
+        var image = scene.render(0)
+        repeat(12) { i ->
+            Thread.sleep(150)
+            image = scene.render((i + 1) * 100_000_000L)
+        }
+        val out = File("build/screens/$name.png").apply { parentFile.mkdirs() }
+        out.writeBytes(image.encodeToData(EncodedImageFormat.PNG)!!.bytes)
+        scene.close()
+        repo.close()
+        assertTrue(out.length() > 0)
+    }
+
+    @Test
+    fun `main window renders in both themes`() {
+        val start = Palette.isDark
+        render(if (start) "dark" else "light")
+        Palette.toggle()
+        render(if (start) "light" else "dark")
+        Palette.toggle()
+    }
+}

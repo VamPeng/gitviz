@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>GitViz 解决冲突</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;margin:0;cursor:pointer;text-align:left}
+button:focus-visible,a:focus-visible{outline:2px solid var(--accent-ink);outline-offset:-2px}
+.hv:hover{background:var(--hover)!important}
+.tool:hover{background:var(--raised)}
+.t-light{--node:#FFFFFF;--field:#FFFFFF;--add:#1A7F4B;--del:#CF222E;--warn:#9A6700}
+.t-dark{--add:#3FB950;--del:#F85149;--warn:#D29922}
+.s-blue.t-light{--ground:#FFFFFF;--rail:#F3F4F6;--panel:#FAFAFB;--line:#E1E3E8;--raised:rgba(47,111,237,0.14);--hover:rgba(47,111,237,0.07);--ink:#1C1E23;--muted:#5A606B;--faint:#6B717C;--accent:#2F6FED;--accent-ink:#1F56C4;--on-accent:#FFFFFF;--link:#1F56C4}
+.s-blue.t-dark{--ground:#1E2024;--rail:#17191C;--panel:#1A1C20;--field:#26292E;--line:#33363D;--raised:rgba(76,141,255,0.18);--hover:rgba(76,141,255,0.09);--ink:#E8EAED;--muted:#A3A8B2;--faint:#8B919C;--node:#E8EAED;--accent:#4C8DFF;--accent-ink:#8AB4FF;--on-accent:#0E1726;--link:#8AB4FF}
+.s-graphite.t-light{--ground:#F7F7F6;--rail:#ECECEA;--panel:#F2F2F0;--line:#DADAD6;--raised:rgba(194,87,12,0.13);--hover:rgba(194,87,12,0.07);--ink:#1F1F1E;--muted:#5C5C58;--faint:#6C6C68;--accent:#C2570C;--accent-ink:#A54A0A;--on-accent:#FFFFFF;--link:#1F56C4}
+.s-graphite.t-dark{--ground:#232323;--rail:#1B1B1B;--panel:#1F1F1F;--field:#2C2C2C;--line:#3A3A3A;--raised:rgba(240,138,60,0.17);--hover:rgba(240,138,60,0.09);--ink:#EAEAE8;--muted:#A8A8A4;--faint:#92928E;--node:#EAEAE8;--accent:#F08A3C;--accent-ink:#F7AE74;--on-accent:#241203;--link:#8AB4FF}
+.s-indigo.t-light{--ground:#FBFBFD;--rail:#EEF0F6;--panel:#F5F6FA;--line:#DDE1EC;--raised:rgba(58,79,163,0.13);--hover:rgba(58,79,163,0.07);--ink:#1A1E2C;--muted:#555C70;--faint:#666D80;--accent:#3A4FA3;--accent-ink:#2F4190;--on-accent:#FFFFFF;--link:#2F4190}
+.s-indigo.t-dark{--ground:#1A1D2B;--rail:#141622;--panel:#171926;--field:#232738;--line:#2F3448;--raised:rgba(124,143,232,0.18);--hover:rgba(124,143,232,0.09);--ink:#E7E9F2;--muted:#A5AABD;--faint:#8D93A8;--node:#E7E9F2;--accent:#7C8FE8;--accent-ink:#A7B4F2;--on-accent:#12162B;--link:#A7B4F2}
+.s-violet.t-light{--ground:#FFFFFF;--rail:#F4F2F8;--panel:#FAF9FC;--line:#E4E0EC;--raised:rgba(109,79,196,0.13);--hover:rgba(109,79,196,0.07);--ink:#1E1B26;--muted:#5D5870;--faint:#6E6980;--accent:#6D4FC4;--accent-ink:#5A3FAE;--on-accent:#FFFFFF;--link:#5A3FAE}
+.s-violet.t-dark{--ground:#1F1C26;--rail:#18161E;--panel:#1B1922;--field:#292530;--line:#37323F;--raised:rgba(164,139,240,0.18);--hover:rgba(164,139,240,0.09);--ink:#ECE9F2;--muted:#ABA6B8;--faint:#9590A3;--node:#ECE9F2;--accent:#A48BF0;--accent-ink:#C3B1F7;--on-accent:#1A1230;--link:#C3B1F7}
+.s-pine.t-light{--ground:#FFFFFF;--rail:#F2F3F1;--panel:#F9FAF8;--line:#E0E2DD;--raised:rgba(47,111,91,0.13);--hover:rgba(47,111,91,0.07);--ink:#1C1F1C;--muted:#5A605A;--faint:#6B716B;--accent:#2F6F5B;--accent-ink:#27604E;--on-accent:#FFFFFF;--link:#1F56C4}
+.s-pine.t-dark{--ground:#1E201E;--rail:#171917;--panel:#1A1C1A;--field:#272A27;--line:#343834;--raised:rgba(111,191,165,0.17);--hover:rgba(111,191,165,0.09);--ink:#E8EBE8;--muted:#A5ABA5;--faint:#8E948E;--node:#E8EBE8;--accent:#6FBFA5;--accent-ink:#97D4C0;--on-accent:#0E211A;--link:#8AB4FF}
+</style>
+</helmet>
+<div class="{{themeClass}}" style="width:1360px;height:860px;box-sizing:border-box;display:flex;flex-direction:column;border-radius:14px;overflow:hidden;border:1px solid var(--line);background:var(--ground);color:var(--ink);font:13px/1.4 -apple-system,'PingFang SC','Helvetica Neue',sans-serif">
+
+  <!-- 合并状态条 -->
+  <div style="height:52px;flex:none;display:flex;align-items:center;gap:16px;padding:0 14px 0 18px;background:var(--rail);border-bottom:1px solid var(--line)">
+    <div style="display:flex;align-items:center;gap:8px">
+      <span style="width:12px;height:12px;border-radius:50%;background:#FF5F57"></span>
+      <span style="width:12px;height:12px;border-radius:50%;background:#FEBC2E"></span>
+      <span style="width:12px;height:12px;border-radius:50%;background:#28C840"></span>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;padding-left:16px">
+      正在合并
+      <span style="padding:1px 6px;border-radius:3px;font-size:12px;background:rgba(194,65,12,0.16);color:var(--del)">feature/split-diff</span>
+      到
+      <span style="padding:1px 6px;border-radius:3px;font-size:12px;background:var(--accent);color:var(--on-accent)">main</span>
+    </div>
+    <span style="font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums">已解决 {{doneCount}} / {{total}}</span>
+    <div style="flex:1"></div>
+    <a href="Main.dc.html" class="tool" style="height:30px;display:flex;align-items:center;padding:0 14px;border:1px solid var(--line);border-radius:5px;color:var(--ink);text-decoration:none">放弃合并</a>
+    <sc-if value="{{allDone}}" hint-placeholder-val="{{false}}">
+      <a href="Main.dc.html" style="height:30px;display:flex;align-items:center;padding:0 14px;border-radius:5px;background:var(--accent);color:var(--on-accent);font-weight:600;text-decoration:none">完成合并</a>
+    </sc-if>
+    <sc-if value="{{notDone}}" hint-placeholder-val="{{true}}">
+      <span style="height:30px;display:flex;align-items:center;padding:0 14px;border-radius:5px;border:1px solid var(--line);color:var(--faint)">还有 {{leftCount}} 个冲突</span>
+    </sc-if>
+  </div>
+
+  <div style="flex:1;min-height:0;display:flex">
+    <!-- 冲突文件 -->
+    <div style="width:248px;flex:none;display:flex;flex-direction:column;background:var(--rail);border-right:1px solid var(--line)">
+      <div style="height:28px;flex:none;display:flex;align-items:center;padding:0 14px;border-bottom:1px solid var(--line);font-size:12px;color:var(--muted)">冲突文件</div>
+      <sc-for list="{{files}}" as="f" hint-placeholder-count="3">
+        <button class="hv" onClick="{{f.pick}}" style="display:flex;align-items:center;gap:8px;width:100%;height:32px;padding:0 14px;box-sizing:border-box;background:{{f.bg}};box-shadow:{{f.bar}}">
+          <span style="width:8px;height:8px;border-radius:50%;flex:none;background:{{f.dot}}"></span>
+          <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{f.name}}</span>
+          <span style="font-size:11px;color:{{f.dot}}">{{f.state}}</span>
+        </button>
+      </sc-for>
+    </div>
+
+    <!-- 三栏：当前分支、结果、传入分支 -->
+    <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+      <div style="height:28px;flex:none;display:flex;align-items:center;gap:10px;padding:0 14px;border-bottom:1px solid var(--line);font-size:12px;color:var(--muted);font-family:Menlo,ui-monospace,monospace">src/main/kotlin/gitviz/{{cur.name}}</div>
+      <div style="flex:1;min-height:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));font-family:Menlo,ui-monospace,monospace;font-size:12px;line-height:20px">
+
+        <div style="display:flex;flex-direction:column;min-width:0;border-right:1px solid var(--line)">
+          <div style="height:30px;flex:none;display:flex;align-items:center;padding:0 12px;border-bottom:1px solid var(--line);font-family:-apple-system,'PingFang SC',sans-serif;font-size:12px;color:var(--link);font-weight:600">当前分支 main</div>
+          <div style="flex:1;min-height:0;overflow:auto;padding:8px 0;background:var(--panel)">
+            <sc-for list="{{ours}}" as="l" hint-placeholder-count="10">
+              <div style="display:flex;min-width:max-content;background:{{l.bg}};color:{{l.fg}}">
+                <span style="width:36px;flex:none;text-align:right;padding-right:8px;color:var(--faint);user-select:none">{{l.no}}</span>
+                <span style="white-space:pre;padding-right:12px">{{l.text}}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;min-width:0;border-right:1px solid var(--line)">
+          <div style="height:30px;flex:none;display:flex;align-items:center;padding:0 12px;border-bottom:1px solid var(--line);font-family:-apple-system,'PingFang SC',sans-serif;font-size:12px;color:var(--ink);font-weight:600">合并结果</div>
+          <div style="flex:1;min-height:0;overflow:auto;padding:8px 0">
+            <sc-for list="{{result}}" as="l" hint-placeholder-count="10">
+              <div style="display:flex;min-width:max-content;background:{{l.bg}};color:{{l.fg}}">
+                <span style="width:36px;flex:none;text-align:right;padding-right:8px;color:var(--faint);user-select:none">{{l.no}}</span>
+                <span style="white-space:pre;padding-right:12px">{{l.text}}</span>
+              </div>
+            </sc-for>
+          </div>
+          <div style="flex:none;display:flex;gap:6px;flex-wrap:wrap;padding:8px 10px;border-top:1px solid var(--line);background:var(--ground);font-family:-apple-system,'PingFang SC',sans-serif;font-size:12px">
+            <sc-for list="{{choices}}" as="c" hint-placeholder-count="3">
+              <button class="tool" onClick="{{c.pick}}" aria-pressed="{{c.on}}" style="height:28px;padding:0 10px;border-radius:5px;border:1px solid {{c.bd}};color:{{c.fg}};font-weight:{{c.w}}">{{c.label}}</button>
+            </sc-for>
+          </div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;min-width:0">
+          <div style="height:30px;flex:none;display:flex;align-items:center;padding:0 12px;border-bottom:1px solid var(--line);font-family:-apple-system,'PingFang SC',sans-serif;font-size:12px;color:var(--del);font-weight:600">传入分支 feature/split-diff</div>
+          <div style="flex:1;min-height:0;overflow:auto;padding:8px 0;background:var(--panel)">
+            <sc-for list="{{theirs}}" as="l" hint-placeholder-count="10">
+              <div style="display:flex;min-width:max-content;background:{{l.bg}};color:{{l.fg}}">
+                <span style="width:36px;flex:none;text-align:right;padding-right:8px;color:var(--faint);user-select:none">{{l.no}}</span>
+                <span style="white-space:pre;padding-right:12px">{{l.text}}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1360,"height":860}}'>
+class Component extends DCLogic {
+  readScheme() {
+    try { return localStorage.getItem('gitviz-scheme-v2') || 'graphite'; } catch (e) { return 'graphite'; }
+  }
+
+  readTheme() {
+    try { return localStorage.getItem('gitviz-theme') || 'light'; } catch (e) { return 'light'; }
+  }
+
+  constructor(props) {
+    super(props);
+    this.state = { idx: 0, pick: { 'Theme.kt': 'ours' }, theme: this.readTheme() };
+  }
+
+  renderVals() {
+    const s = this.state;
+    const set = (p) => this.setState(p);
+    const AMBER = 'var(--warn)', GREEN = 'var(--add)', RAISED = 'var(--raised)';
+    const CTX = ['transparent', 'var(--muted)'];
+    const OURS = ['rgba(47,91,191,0.14)', 'var(--link)'], THEIRS = ['rgba(194,65,12,0.14)', 'var(--del)'], OPEN = ['rgba(242,183,5,0.2)', AMBER];
+    const FILES = [
+      {
+        name: 'Main.kt', start: 303,
+        before: ['    Row(modifier) {', '        Column(Modifier.weight(0.38f).fillMaxHeight()) {', '            CommitHeader(commit)'],
+        ours: ['            CommitActions(commit)', '            HorizontalDivider()'],
+        theirs: ['            CommitActions(commit, onSplit = { split = !split })', '            HorizontalDivider()', '            DiffModeSwitch(split)'],
+        after: ['            ChangedFiles(changes, selectedFile, onSelect = { selectedFile = it })', '        }', '    }'],
+      },
+      {
+        name: 'DiffLines.kt', start: 12,
+        before: ['enum class DiffLineKind { HEADER, HUNK, ADDED, REMOVED, CONTEXT }', ''],
+        ours: ['data class DiffLine(val kind: DiffLineKind, val text: String)'],
+        theirs: ['data class DiffLine(val kind: DiffLineKind, val text: String, val oldNo: Int?, val newNo: Int?)'],
+        after: ['', 'fun parseDiffLines(diff: String): List<DiffLine> ='],
+      },
+      {
+        name: 'Theme.kt', start: 31,
+        before: ['    val Muted = Color(0xFF93A1B3)'],
+        ours: ['    val Faint = Color(0xFF8091A6)'],
+        theirs: ['    val Faint = Color(0xFF64748A)', '    val DiffGutter = Color(0xFF1F2A39)'],
+        after: ['    val Signal = Color(0xFFF2B233)'],
+      },
+    ];
+    const f = FILES[s.idx];
+    const choice = s.pick[f.name];
+    const rows = (lines, start, style) => lines.map((text, i) => ({ text, no: start + i, bg: style[0], fg: style[1] }));
+    const side = (mid, style) => rows(f.before, f.start, CTX)
+      .concat(rows(mid, f.start + f.before.length, style))
+      .concat(rows(f.after, f.start + f.before.length + mid.length, CTX));
+    const mid = [];
+    if (choice === 'ours' || choice === 'both') f.ours.forEach((t) => mid.push([t, OURS]));
+    if (choice === 'theirs' || choice === 'both') f.theirs.forEach((t) => mid.push([t, THEIRS]));
+    if (!choice) mid.push(['// 未解决：在下方选择保留哪一边', OPEN]);
+    const result = rows(f.before, f.start, CTX)
+      .concat(mid.map((m, i) => ({ text: m[0], no: f.start + f.before.length + i, bg: m[1][0], fg: m[1][1] })))
+      .concat(rows(f.after, f.start + f.before.length + mid.length, CTX));
+
+    const doneCount = FILES.filter((x) => s.pick[x.name]).length;
+    return {
+      themeClass: 's-' + this.readScheme() + ' t-' + s.theme, cur: f, total: FILES.length, doneCount, leftCount: FILES.length - doneCount,
+      allDone: doneCount === FILES.length, notDone: doneCount !== FILES.length,
+      files: FILES.map((x, i) => ({
+        name: x.name, state: s.pick[x.name] ? '已解决' : '冲突', dot: s.pick[x.name] ? GREEN : AMBER,
+        bg: i === s.idx ? RAISED : 'transparent', bar: i === s.idx ? 'inset 2px 0 0 var(--accent)' : 'none',
+        pick: () => set({ idx: i }),
+      })),
+      ours: side(f.ours, OURS), theirs: side(f.theirs, THEIRS), result,
+      choices: [['ours', '用当前分支'], ['theirs', '用传入分支'], ['both', '两边都保留']].map(([k, label]) => ({
+        label, on: choice === k, bd: choice === k ? 'var(--accent-ink)' : 'var(--line)', fg: choice === k ? 'var(--accent-ink)' : 'var(--ink)', w: choice === k ? 600 : 400,
+        pick: () => set({ pick: Object.assign({}, s.pick, { [f.name]: k }) }),
+      })),
+    };
+  }
+}
+</script>
+</body>
+</html>

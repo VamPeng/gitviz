@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>GitViz 欢迎页</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;margin:0;cursor:pointer;text-align:left}
+button:focus-visible{outline:2px solid var(--accent-ink);outline-offset:-2px}
+.hv:hover{background:var(--hover)!important}
+.t-light{--node:#FFFFFF;--field:#FFFFFF;--add:#1A7F4B;--del:#CF222E;--warn:#9A6700}
+.t-dark{--add:#3FB950;--del:#F85149;--warn:#D29922}
+.s-blue.t-light{--ground:#FFFFFF;--rail:#F3F4F6;--panel:#FAFAFB;--line:#E1E3E8;--raised:rgba(47,111,237,0.14);--hover:rgba(47,111,237,0.07);--ink:#1C1E23;--muted:#5A606B;--faint:#6B717C;--accent:#2F6FED;--accent-ink:#1F56C4;--on-accent:#FFFFFF;--link:#1F56C4}
+.s-blue.t-dark{--ground:#1E2024;--rail:#17191C;--panel:#1A1C20;--field:#26292E;--line:#33363D;--raised:rgba(76,141,255,0.18);--hover:rgba(76,141,255,0.09);--ink:#E8EAED;--muted:#A3A8B2;--faint:#8B919C;--node:#E8EAED;--accent:#4C8DFF;--accent-ink:#8AB4FF;--on-accent:#0E1726;--link:#8AB4FF}
+.s-graphite.t-light{--ground:#F7F7F6;--rail:#ECECEA;--panel:#F2F2F0;--line:#DADAD6;--raised:rgba(194,87,12,0.13);--hover:rgba(194,87,12,0.07);--ink:#1F1F1E;--muted:#5C5C58;--faint:#6C6C68;--accent:#C2570C;--accent-ink:#A54A0A;--on-accent:#FFFFFF;--link:#1F56C4}
+.s-graphite.t-dark{--ground:#232323;--rail:#1B1B1B;--panel:#1F1F1F;--field:#2C2C2C;--line:#3A3A3A;--raised:rgba(240,138,60,0.17);--hover:rgba(240,138,60,0.09);--ink:#EAEAE8;--muted:#A8A8A4;--faint:#92928E;--node:#EAEAE8;--accent:#F08A3C;--accent-ink:#F7AE74;--on-accent:#241203;--link:#8AB4FF}
+.s-indigo.t-light{--ground:#FBFBFD;--rail:#EEF0F6;--panel:#F5F6FA;--line:#DDE1EC;--raised:rgba(58,79,163,0.13);--hover:rgba(58,79,163,0.07);--ink:#1A1E2C;--muted:#555C70;--faint:#666D80;--accent:#3A4FA3;--accent-ink:#2F4190;--on-accent:#FFFFFF;--link:#2F4190}
+.s-indigo.t-dark{--ground:#1A1D2B;--rail:#141622;--panel:#171926;--field:#232738;--line:#2F3448;--raised:rgba(124,143,232,0.18);--hover:rgba(124,143,232,0.09);--ink:#E7E9F2;--muted:#A5AABD;--faint:#8D93A8;--node:#E7E9F2;--accent:#7C8FE8;--accent-ink:#A7B4F2;--on-accent:#12162B;--link:#A7B4F2}
+.s-violet.t-light{--ground:#FFFFFF;--rail:#F4F2F8;--panel:#FAF9FC;--line:#E4E0EC;--raised:rgba(109,79,196,0.13);--hover:rgba(109,79,196,0.07);--ink:#1E1B26;--muted:#5D5870;--faint:#6E6980;--accent:#6D4FC4;--accent-ink:#5A3FAE;--on-accent:#FFFFFF;--link:#5A3FAE}
+.s-violet.t-dark{--ground:#1F1C26;--rail:#18161E;--panel:#1B1922;--field:#292530;--line:#37323F;--raised:rgba(164,139,240,0.18);--hover:rgba(164,139,240,0.09);--ink:#ECE9F2;--muted:#ABA6B8;--faint:#9590A3;--node:#ECE9F2;--accent:#A48BF0;--accent-ink:#C3B1F7;--on-accent:#1A1230;--link:#C3B1F7}
+.s-pine.t-light{--ground:#FFFFFF;--rail:#F2F3F1;--panel:#F9FAF8;--line:#E0E2DD;--raised:rgba(47,111,91,0.13);--hover:rgba(47,111,91,0.07);--ink:#1C1F1C;--muted:#5A605A;--faint:#6B716B;--accent:#2F6F5B;--accent-ink:#27604E;--on-accent:#FFFFFF;--link:#1F56C4}
+.s-pine.t-dark{--ground:#1E201E;--rail:#171917;--panel:#1A1C1A;--field:#272A27;--line:#343834;--raised:rgba(111,191,165,0.17);--hover:rgba(111,191,165,0.09);--ink:#E8EBE8;--muted:#A5ABA5;--faint:#8E948E;--node:#E8EBE8;--accent:#6FBFA5;--accent-ink:#97D4C0;--on-accent:#0E211A;--link:#8AB4FF}
+</style>
+</helmet>
+<div class="{{themeClass}}" style="width:1360px;height:860px;box-sizing:border-box;display:flex;flex-direction:column;border-radius:14px;overflow:hidden;border:1px solid var(--line);background:var(--ground);color:var(--ink);font:13px/1.4 -apple-system,'PingFang SC','Helvetica Neue',sans-serif">
+  <div style="height:52px;flex:none;display:flex;align-items:center;gap:8px;padding:0 18px;border-bottom:1px solid var(--line);background:var(--rail)">
+    <span style="width:12px;height:12px;border-radius:50%;background:#FF5F57"></span>
+    <span style="width:12px;height:12px;border-radius:50%;background:#FEBC2E"></span>
+    <span style="width:12px;height:12px;border-radius:50%;background:#28C840"></span>
+  </div>
+  <div style="flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; border-radius: 0px">
+    <div style="width:560px;display:flex;flex-direction:column;gap:28px">
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <svg width="260" height="40" viewBox="0 0 260 40" fill="none" stroke-width="3" stroke-linecap="round" aria-hidden="true">
+          <path d="M8 20H252" stroke="var(--link)"></path><path d="M70 20C90 20 90 8 110 8H170C190 8 190 20 210 20" stroke="var(--accent)"></path>
+          <circle cx="8" cy="20" r="5" fill="var(--node)" stroke="var(--link)" stroke-width="2"></circle><circle cx="70" cy="20" r="5" fill="var(--node)" stroke="var(--link)" stroke-width="2"></circle>
+          <circle cx="140" cy="8" r="5" fill="var(--node)" stroke="var(--accent)" stroke-width="2"></circle><circle cx="210" cy="20" r="5" fill="var(--node)" stroke="var(--link)" stroke-width="2"></circle>
+          <circle cx="252" cy="20" r="7" fill="var(--node)" stroke="var(--link)" stroke-width="2"></circle><circle cx="252" cy="20" r="2" fill="var(--rail)" stroke="none"></circle>
+        </svg>
+        <div style="font-size:28px;font-weight:600">GitViz</div>
+        <div style="font-size:14px;color:var(--muted)">选择一个本地 git 仓库，查看它的分支和提交。</div>
+      </div>
+      <div style="display:flex;gap:10px">
+        <button style="height:34px;padding:0 16px;border-radius:6px;background:var(--accent);color:var(--on-accent);font-weight:600;display:flex;align-items:center">打开仓库…</button>
+        <button class="hv" style="height:34px;padding:0 16px;border-radius:6px;border:1px solid var(--line);display:flex;align-items:center">克隆仓库</button>
+      </div>
+      <div style="display:flex;flex-direction:column;border-top:1px solid var(--line)">
+        <div style="padding:10px 0 6px;font-size:12px;color:var(--muted)">最近打开</div>
+        <sc-for list="{{recent}}" as="r" hint-placeholder-count="3">
+          <button class="hv" style="display:flex;align-items:center;gap:12px;height:40px;padding:0 10px;border-radius:5px">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3v12 M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M18 9a9 9 0 0 1-9 9"></path></svg>
+            <span style="font-weight:500;width:120px">{{r.name}}</span>
+            <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--faint);font-family:Menlo,ui-monospace,monospace;font-size:12px">{{r.path}}</span>
+            <span style="font-size:12px;color:var(--muted)">{{r.branch}}</span>
+          </button>
+        </sc-for>
+      </div>
+      <div style="font-size:12px;color:var(--faint)">也可以把仓库文件夹拖进窗口，或在终端运行 ./gradlew run --args="/path/to/repo"</div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1360,"height":860}}'>
+class Component extends DCLogic {
+  readScheme() {
+    try { return localStorage.getItem('gitviz-scheme-v2') || 'graphite'; } catch (e) { return 'graphite'; }
+  }
+
+  readTheme() {
+    try { return localStorage.getItem('gitviz-theme') || 'light'; } catch (e) { return 'light'; }
+  }
+
+  renderVals() {
+    return {
+      themeClass: 's-' + this.readScheme() + ' t-' + this.readTheme(),
+      recent: [
+        { name: 'gitviz', path: '/Users/yuhuipeng/Desktop/pro/gitviz', branch: 'main' },
+        { name: 'dotfiles', path: '/Users/yuhuipeng/code/dotfiles', branch: 'master' },
+        { name: 'notes', path: '/Users/yuhuipeng/Documents/notes', branch: 'main' },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>

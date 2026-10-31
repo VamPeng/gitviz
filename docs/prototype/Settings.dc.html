@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>GitViz 设置</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;margin:0;cursor:pointer;text-align:left}
+button:focus-visible,a:focus-visible{outline:2px solid var(--accent-ink);outline-offset:-2px}
+.hv:hover{background:var(--hover)!important}
+.tool:hover{background:var(--raised)}
+.t-light{--node:#FFFFFF;--field:#FFFFFF;--add:#1A7F4B;--del:#CF222E;--warn:#9A6700}
+.t-dark{--add:#3FB950;--del:#F85149;--warn:#D29922}
+.s-blue.t-light{--ground:#FFFFFF;--rail:#F3F4F6;--panel:#FAFAFB;--line:#E1E3E8;--raised:rgba(47,111,237,0.14);--hover:rgba(47,111,237,0.07);--ink:#1C1E23;--muted:#5A606B;--faint:#6B717C;--accent:#2F6FED;--accent-ink:#1F56C4;--on-accent:#FFFFFF;--link:#1F56C4}
+.s-blue.t-dark{--ground:#1E2024;--rail:#17191C;--panel:#1A1C20;--field:#26292E;--line:#33363D;--raised:rgba(76,141,255,0.18);--hover:rgba(76,141,255,0.09);--ink:#E8EAED;--muted:#A3A8B2;--faint:#8B919C;--node:#E8EAED;--accent:#4C8DFF;--accent-ink:#8AB4FF;--on-accent:#0E1726;--link:#8AB4FF}
+.s-graphite.t-light{--ground:#F7F7F6;--rail:#ECECEA;--panel:#F2F2F0;--line:#DADAD6;--raised:rgba(194,87,12,0.13);--hover:rgba(194,87,12,0.07);--ink:#1F1F1E;--muted:#5C5C58;--faint:#6C6C68;--accent:#C2570C;--accent-ink:#A54A0A;--on-accent:#FFFFFF;--link:#1F56C4}
+.s-graphite.t-dark{--ground:#232323;--rail:#1B1B1B;--panel:#1F1F1F;--field:#2C2C2C;--line:#3A3A3A;--raised:rgba(240,138,60,0.17);--hover:rgba(240,138,60,0.09);--ink:#EAEAE8;--muted:#A8A8A4;--faint:#92928E;--node:#EAEAE8;--accent:#F08A3C;--accent-ink:#F7AE74;--on-accent:#241203;--link:#8AB4FF}
+.s-indigo.t-light{--ground:#FBFBFD;--rail:#EEF0F6;--panel:#F5F6FA;--line:#DDE1EC;--raised:rgba(58,79,163,0.13);--hover:rgba(58,79,163,0.07);--ink:#1A1E2C;--muted:#555C70;--faint:#666D80;--accent:#3A4FA3;--accent-ink:#2F4190;--on-accent:#FFFFFF;--link:#2F4190}
+.s-indigo.t-dark{--ground:#1A1D2B;--rail:#141622;--panel:#171926;--field:#232738;--line:#2F3448;--raised:rgba(124,143,232,0.18);--hover:rgba(124,143,232,0.09);--ink:#E7E9F2;--muted:#A5AABD;--faint:#8D93A8;--node:#E7E9F2;--accent:#7C8FE8;--accent-ink:#A7B4F2;--on-accent:#12162B;--link:#A7B4F2}
+.s-violet.t-light{--ground:#FFFFFF;--rail:#F4F2F8;--panel:#FAF9FC;--line:#E4E0EC;--raised:rgba(109,79,196,0.13);--hover:rgba(109,79,196,0.07);--ink:#1E1B26;--muted:#5D5870;--faint:#6E6980;--accent:#6D4FC4;--accent-ink:#5A3FAE;--on-accent:#FFFFFF;--link:#5A3FAE}
+.s-violet.t-dark{--ground:#1F1C26;--rail:#18161E;--panel:#1B1922;--field:#292530;--line:#37323F;--raised:rgba(164,139,240,0.18);--hover:rgba(164,139,240,0.09);--ink:#ECE9F2;--muted:#ABA6B8;--faint:#9590A3;--node:#ECE9F2;--accent:#A48BF0;--accent-ink:#C3B1F7;--on-accent:#1A1230;--link:#C3B1F7}
+.s-pine.t-light{--ground:#FFFFFF;--rail:#F2F3F1;--panel:#F9FAF8;--line:#E0E2DD;--raised:rgba(47,111,91,0.13);--hover:rgba(47,111,91,0.07);--ink:#1C1F1C;--muted:#5A605A;--faint:#6B716B;--accent:#2F6F5B;--accent-ink:#27604E;--on-accent:#FFFFFF;--link:#1F56C4}
+.s-pine.t-dark{--ground:#1E201E;--rail:#171917;--panel:#1A1C1A;--field:#272A27;--line:#343834;--raised:rgba(111,191,165,0.17);--hover:rgba(111,191,165,0.09);--ink:#E8EBE8;--muted:#A5ABA5;--faint:#8E948E;--node:#E8EBE8;--accent:#6FBFA5;--accent-ink:#97D4C0;--on-accent:#0E211A;--link:#8AB4FF}
+</style>
+</helmet>
+<div class="{{themeClass}}" style="width:1360px;height:860px;box-sizing:border-box;display:flex;border-radius:14px;overflow:hidden;border:1px solid var(--line);background:var(--ground);color:var(--ink);font:13px/1.4 -apple-system,'PingFang SC','Helvetica Neue',sans-serif">
+
+  <!-- 分类 -->
+  <div style="width:248px;flex:none;display:flex;flex-direction:column;background:var(--rail);border-right:1px solid var(--line)">
+    <div style="height:52px;flex:none;display:flex;align-items:center;gap:8px;padding:0 18px">
+      <span style="width:12px;height:12px;border-radius:50%;background:#FF5F57"></span>
+      <span style="width:12px;height:12px;border-radius:50%;background:#FEBC2E"></span>
+      <span style="width:12px;height:12px;border-radius:50%;background:#28C840"></span>
+    </div>
+    <div style="padding:4px 6px;display:flex;flex-direction:column;gap:1px">
+      <sc-for list="{{nav}}" as="n" hint-placeholder-count="4">
+        <button class="hv" onClick="{{n.pick}}" style="height:30px;padding:0 10px;border-radius:5px;background:{{n.bg}};font-weight:{{n.w}}">{{n.label}}</button>
+      </sc-for>
+    </div>
+    <div style="flex:1"></div>
+    <a href="Main.dc.html" class="tool" style="margin:10px;height:30px;display:flex;align-items:center;justify-content:center;border:1px solid var(--line);border-radius:5px;color:var(--ink);text-decoration:none">返回主窗口</a>
+  </div>
+
+  <!-- 设置项 -->
+  <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+    <div style="height:52px;flex:none;display:flex;align-items:center;padding:0 24px;border-bottom:1px solid var(--line);font-size:16px;font-weight:600">{{title}}</div>
+    <div style="flex:1;min-height:0;display:flex">
+      <div style="flex:1;min-width:0;overflow:auto;padding:8px 24px">
+        <sc-for list="{{items}}" as="it" hint-placeholder-count="4">
+          <div style="display:flex;align-items:center;gap:20px;min-height:60px;padding:10px 0;box-sizing:border-box;border-bottom:1px solid var(--line)">
+            <div style="flex:1;min-width:0">
+              <div>{{it.label}}</div>
+              <div style="font-size:12px;color:var(--muted)">{{it.hint}}</div>
+            </div>
+            <div style="display:{{it.segDisplay}};flex:none;border:1px solid var(--line);border-radius:5px;overflow:hidden">
+              <sc-for list="{{it.options}}" as="o" hint-placeholder-count="3">
+                <button onClick="{{o.pick}}" aria-pressed="{{o.on}}" style="height:28px;padding:0 12px;font-size:12px;background:{{o.bg}};color:{{o.fg}}">{{o.label}}</button>
+              </sc-for>
+            </div>
+            <button role="switch" onClick="{{it.toggle}}" aria-checked="{{it.value}}" aria-label="{{it.label}}" style="display:{{it.swDisplay}};flex:none;width:36px;height:20px;border-radius:10px;background:{{it.swBg}};position:relative">
+              <span style="position:absolute;top:2px;left:{{it.knob}};width:16px;height:16px;border-radius:50%;background:var(--node)"></span>
+            </button>
+            <span style="display:{{it.textDisplay}};flex:none;padding:5px 10px;border:1px solid var(--line);border-radius:5px;background:var(--rail);font-family:Menlo,ui-monospace,monospace;font-size:12px">{{it.text}}</span>
+          </div>
+        </sc-for>
+      </div>
+
+      <!-- 实时预览 -->
+      <div style="width:420px;flex:none;display:flex;flex-direction:column;gap:10px;padding:18px 20px;box-sizing:border-box;border-left:1px solid var(--line);background:var(--rail)">
+        <div style="font-size:12px;color:var(--muted)">预览</div>
+        <div style="border:1px solid {{pv.line}};border-radius:8px;overflow:hidden;background:{{pv.ground}};color:{{pv.ink}};font-size:{{pv.font}}">
+          <sc-for list="{{pvRows}}" as="r" hint-placeholder-count="5">
+            <div style="display:flex;align-items:center;gap:10px;height:{{pv.rowH}};padding:0 12px;background:{{r.bg}};box-shadow:{{r.bar}}">
+              <span style="width:10px;height:10px;box-sizing:border-box;border-radius:50%;flex:none;margin-left:{{r.indent}};border:2px solid {{r.lane}};background:{{pv.ink}}"></span>
+              <span style="padding:0 5px;border-radius:3px;font-size:11px;display:{{r.chipDisplay}};background:{{r.lane}};color:{{pv.ground}};font-weight:600">{{r.chip}}</span>
+              <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{r.msg}}</span>
+              <span style="font-family:Menlo,ui-monospace,monospace;font-size:11px;color:{{pv.muted}}">{{r.sha}}</span>
+            </div>
+          </sc-for>
+        </div>
+        <div style="font-size:12px;color:var(--muted)">主题会同步到其他画板。行高和字号目前只在这里预览。</div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1360,"height":860}}'>
+class Component extends DCLogic {
+  readSign() {
+    try { return localStorage.getItem('gitviz-sign') !== 'off'; } catch (e) { return true; }
+  }
+
+  readScheme() {
+    try { return localStorage.getItem('gitviz-scheme-v2') || 'graphite'; } catch (e) { return 'graphite'; }
+  }
+
+  saveScheme(scheme) {
+    try { localStorage.setItem('gitviz-scheme-v2', scheme); } catch (e) { /* 存不了也能切换 */ }
+  }
+
+  readTheme() {
+    try { return localStorage.getItem('gitviz-theme') || 'light'; } catch (e) { return 'light'; }
+  }
+
+  systemTheme() {
+    try { return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; } catch (e) { return 'light'; }
+  }
+
+  saveTheme(theme) {
+    const resolved = theme === 'system' ? this.systemTheme() : theme;
+    try { localStorage.setItem('gitviz-theme', resolved); } catch (e) { /* 存不了也能切换 */ }
+  }
+
+  constructor(props) {
+    super(props);
+    this.state = {
+      sec: 'look', theme: this.readTheme(), scheme: this.readScheme(), density: 'compact', font: '13', diffMode: 'unified',
+      sign: this.readSign(), ignoreWs: false, wrap: false, showRemote: true, autoFetch: true,
+    };
+  }
+
+  renderVals() {
+    const s = this.state;
+    const set = (p) => this.setState(p);
+    const seg = (label, hint, key, opts) => ({
+      label, hint, segDisplay: 'flex', swDisplay: 'none', textDisplay: 'none', swBg: 'none', knob: '0', value: false, text: '',
+      toggle: () => {},
+      options: opts.map(([v, l]) => ({
+        label: l, on: s[key] === v, bg: s[key] === v ? 'var(--raised)' : 'transparent', fg: s[key] === v ? 'var(--ink)' : 'var(--muted)',
+        pick: () => {
+          if (key === 'theme') this.saveTheme(v);
+          if (key === 'scheme') this.saveScheme(v);
+          set({ [key]: v });
+        },
+      })),
+    });
+    const sw = (label, hint, key) => ({
+      label, hint, segDisplay: 'none', swDisplay: 'block', textDisplay: 'none', options: [], text: '',
+      value: s[key], swBg: s[key] ? 'var(--add)' : 'var(--line)', knob: s[key] ? '18px' : '2px',
+      toggle: () => {
+        if (key === 'sign') {
+          try { localStorage.setItem('gitviz-sign', s.sign ? 'off' : 'on'); } catch (e) { /* 存不了也能切换 */ }
+        }
+        set({ [key]: !s[key] });
+      },
+    });
+    const text = (label, hint, value) => ({
+      label, hint, segDisplay: 'none', swDisplay: 'none', textDisplay: 'block', options: [], swBg: 'none', knob: '0', value: false,
+      text: value, toggle: () => {},
+    });
+    const SHOW_SCHEMES = false; // MVP 先隐藏配色入口，改成 true 就能恢复
+    const SECS = {
+      look: ['外观', [
+        ...(SHOW_SCHEMES ? [seg('配色方案', '主色和底色，五套可选', 'scheme', [['blue', '原生蓝'], ['graphite', '石墨橙'], ['indigo', '黛蓝'], ['violet', '紫藤'], ['pine', '松烟']])] : []),
+        seg('主题', '跟随系统时随 macOS 外观切换', 'theme', [['dark', '深色'], ['light', '浅色'], ['system', '跟随系统']]),
+        seg('行高', '紧凑 28px，标准 32px，宽松 36px', 'density', [['compact', '紧凑'], ['normal', '标准'], ['loose', '宽松']]),
+        seg('字号', '提交列表和文件列表的文字大小', 'font', [['12', '12'], ['13', '13'], ['14', '14']]),
+      ]],
+      graph: ['提交图', [
+        sw('显示远程分支', '关闭后只画本地分支', 'showRemote'),
+        text('加载上限', '超过上限的提交不显示', '5000'),
+        text('最多显示列数', '分支太多时多余的列不画', '10'),
+      ]],
+      diff: ['Diff', [
+        seg('默认视图', '打开文件时使用的视图', 'diffMode', [['unified', '统一'], ['split', '并排']]),
+        sw('忽略空白改动', '不显示只改缩进或空格的行', 'ignoreWs'),
+        sw('自动换行', '长行折到下一行', 'wrap'),
+      ]],
+      git: ['Git', [
+        text('用户名', '来自 git config user.name', 'VamPeng'),
+        text('邮箱', '来自 git config user.email', 'nicevam@pm.me'),
+        sw('提交时签名', '提交前要输入签名密钥的密码', 'sign'),
+        sw('自动拉取远程信息', '每 10 分钟 fetch 一次，不改动工作区', 'autoFetch'),
+      ]],
+    };
+    const cur = SECS[s.sec];
+    const resolved = s.theme === 'system' ? this.systemTheme() : s.theme;
+    const P = {
+      ground: 'var(--ground)', ink: 'var(--ink)', muted: 'var(--muted)', line: 'var(--line)', raised: 'var(--raised)', signal: 'var(--accent)',
+      lanes: resolved === 'light' ? ['#1F6FD6', '#D0502C', '#178A56'] : ['#4DA3FF', '#FF7A59', '#3DD68C'],
+    };
+    const rowH = { compact: '28px', normal: '32px', loose: '36px' }[s.density];
+    const sample = [
+      ['Add ref sidebar and glass window', '39a636e', 0, 'main'],
+      ['Split diff: sync scrolling', 'c7d2e41', 1, 'feature'],
+      ["Merge branch 'fix/refresh'", 'b81f9a6', 0, ''],
+      ['Keep selection after refresh', '5e0ac13', 2, ''],
+      ['Add tag filter to sidebar', 'e3f1b92', 0, ''],
+    ];
+    return {
+      themeClass: 's-' + s.scheme + ' t-' + resolved, title: cur[0], items: cur[1],
+      nav: Object.keys(SECS).map((k) => ({
+        label: SECS[k][0], bg: k === s.sec ? 'var(--raised)' : 'transparent', w: k === s.sec ? 600 : 400,
+        pick: () => set({ sec: k }),
+      })),
+      pv: { ground: P.ground, ink: P.ink, muted: P.muted, line: P.line, font: s.font + 'px', rowH },
+      pvRows: sample.map((r, i) => ({
+        msg: r[0], sha: r[1], chip: r[3], chipDisplay: r[3] ? 'block' : 'none',
+        lane: P.lanes[r[2]], indent: r[2] * 12 + 'px',
+        bg: i === 1 ? P.raised : 'transparent', bar: i === 1 ? 'inset 2px 0 0 ' + P.signal : 'none',
+      })),
+    };
+  }
+}
+</script>
+</body>
+</html>

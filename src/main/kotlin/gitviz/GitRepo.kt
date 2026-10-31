@@ -1,5 +1,6 @@
 package gitviz
 
+import org.eclipse.jgit.api.Git
 import org.eclipse.jgit.diff.DiffEntry
 import org.eclipse.jgit.diff.DiffFormatter
 import org.eclipse.jgit.diff.RawTextComparator
@@ -39,8 +40,13 @@ data class FileChange(
     val type: DiffEntry.ChangeType,
     val oldPath: String,
     val newPath: String,
+    val additions: Int,
+    val deletions: Int,
     internal val entry: DiffEntry,
 ) {
+    /** 文件在这个提交里所在的路径；删除的文件取删除前的路径。 */
+    val path: String get() = if (type == DiffEntry.ChangeType.DELETE) oldPath else newPath
+
     val displayPath: String
         get() = when (type) {
             DiffEntry.ChangeType.DELETE -> oldPath
@@ -48,6 +54,15 @@ data class FileChange(
             else -> newPath
         }
 }
+
+/** Blame 的一行：text 是文件内容，其余是最后改动这一行的提交。 */
+data class BlameLine(
+    val lineNo: Int,
+    val text: String,
+    val commitId: String,
+    val author: String,
+    val timeSeconds: Long,
+)
 
 data class LoadResult(
     val commits: List<CommitInfo>,
@@ -100,9 +115,26 @@ class GitRepo private constructor(val repository: Repository) : AutoCloseable {
                 df.setDiffComparator(RawTextComparator.DEFAULT)
                 df.isDetectRenames = true
                 return df.scan(oldTree, commit.tree).map {
-                    FileChange(it.changeType, it.oldPath, it.newPath, it)
+                    val edits = df.toFileHeader(it).toEditList()
+                    FileChange(it.changeType, it.oldPath, it.newPath, edits.sumOf { e -> e.lengthB }, edits.sumOf { e -> e.lengthA }, it)
                 }
             }
+        }
+    }
+
+    /** 从 commitId 往回，改动过 path 的提交，最新的在前。 */
+    fun fileHistory(commitId: String, path: String, limit: Int = MAX_FILE_HISTORY): List<CommitInfo> =
+        Git(repository).log().add(ObjectId.fromString(commitId)).addPath(path).setMaxCount(limit).call()
+            .map { it.toInfo(emptyList()) }
+
+    /** commitId 时 path 的每一行最后是谁改的。二进制文件没有行，返回空列表。 */
+    fun blame(commitId: String, path: String): List<BlameLine> {
+        val result = Git(repository).blame().setStartCommit(ObjectId.fromString(commitId)).setFilePath(path).call()
+            ?: return emptyList()
+        val contents = result.resultContents
+        return (0 until contents.size()).map { i ->
+            val source = result.getSourceCommit(i)
+            BlameLine(i + 1, contents.getString(i), source.name, source.authorIdent.name, source.commitTime.toLong())
         }
     }
 
@@ -164,10 +196,11 @@ class GitRepo private constructor(val repository: Repository) : AutoCloseable {
     companion object {
         const val MAX_COMMITS = 5000
         const val MAX_DIFF_CHARS = 1_000_000
+        const val MAX_FILE_HISTORY = 500
 
         /** 从给定目录向上查找 .git，找不到时抛异常。 */
         fun open(dir: File): GitRepo {
-            val builder = FileRepositoryBuilder().readEnvironment().findGitDir(dir.absoluteFile)
+            val builder = FileRepositoryBuilder().readEnvironment().findGitDir(dir.canonicalFile) // 规范化路径，传 "." 时仓库名不会变成 "."
             require(builder.gitDir != null) { "不是 git 仓库：${dir.absolutePath}" }
             return GitRepo(builder.setMustExist(true).build())
         }

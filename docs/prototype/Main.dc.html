@@ -1,0 +1,1116 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>GitViz 主窗口</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;margin:0;cursor:pointer;text-align:left}
+button:focus-visible,input:focus-visible{outline:2px solid var(--accent-ink);outline-offset:-2px}
+.hv:hover{background:var(--hover)!important}
+.tool:hover{background:var(--raised)}
+.seg:hover{color:var(--ink)}
+@keyframes gv-spin{to{transform:rotate(360deg)}}
+input::placeholder{color:var(--faint)}
+.t-light{--node:#FFFFFF;--field:#FFFFFF;--add:#1A7F4B;--del:#CF222E;--warn:#9A6700}
+.t-dark{--add:#3FB950;--del:#F85149;--warn:#D29922}
+.s-blue.t-light{--ground:#FFFFFF;--rail:#F3F4F6;--panel:#FAFAFB;--line:#E1E3E8;--raised:rgba(47,111,237,0.14);--hover:rgba(47,111,237,0.07);--ink:#1C1E23;--muted:#5A606B;--faint:#6B717C;--accent:#2F6FED;--accent-ink:#1F56C4;--on-accent:#FFFFFF;--link:#1F56C4}
+.s-blue.t-dark{--ground:#1E2024;--rail:#17191C;--panel:#1A1C20;--field:#26292E;--line:#33363D;--raised:rgba(76,141,255,0.18);--hover:rgba(76,141,255,0.09);--ink:#E8EAED;--muted:#A3A8B2;--faint:#8B919C;--node:#E8EAED;--accent:#4C8DFF;--accent-ink:#8AB4FF;--on-accent:#0E1726;--link:#8AB4FF}
+.s-graphite.t-light{--ground:#F7F7F6;--rail:#ECECEA;--panel:#F2F2F0;--line:#DADAD6;--raised:rgba(194,87,12,0.13);--hover:rgba(194,87,12,0.07);--ink:#1F1F1E;--muted:#5C5C58;--faint:#6C6C68;--accent:#C2570C;--accent-ink:#A54A0A;--on-accent:#FFFFFF;--link:#1F56C4}
+.s-graphite.t-dark{--ground:#232323;--rail:#1B1B1B;--panel:#1F1F1F;--field:#2C2C2C;--line:#3A3A3A;--raised:rgba(240,138,60,0.17);--hover:rgba(240,138,60,0.09);--ink:#EAEAE8;--muted:#A8A8A4;--faint:#92928E;--node:#EAEAE8;--accent:#F08A3C;--accent-ink:#F7AE74;--on-accent:#241203;--link:#8AB4FF}
+.s-indigo.t-light{--ground:#FBFBFD;--rail:#EEF0F6;--panel:#F5F6FA;--line:#DDE1EC;--raised:rgba(58,79,163,0.13);--hover:rgba(58,79,163,0.07);--ink:#1A1E2C;--muted:#555C70;--faint:#666D80;--accent:#3A4FA3;--accent-ink:#2F4190;--on-accent:#FFFFFF;--link:#2F4190}
+.s-indigo.t-dark{--ground:#1A1D2B;--rail:#141622;--panel:#171926;--field:#232738;--line:#2F3448;--raised:rgba(124,143,232,0.18);--hover:rgba(124,143,232,0.09);--ink:#E7E9F2;--muted:#A5AABD;--faint:#8D93A8;--node:#E7E9F2;--accent:#7C8FE8;--accent-ink:#A7B4F2;--on-accent:#12162B;--link:#A7B4F2}
+.s-violet.t-light{--ground:#FFFFFF;--rail:#F4F2F8;--panel:#FAF9FC;--line:#E4E0EC;--raised:rgba(109,79,196,0.13);--hover:rgba(109,79,196,0.07);--ink:#1E1B26;--muted:#5D5870;--faint:#6E6980;--accent:#6D4FC4;--accent-ink:#5A3FAE;--on-accent:#FFFFFF;--link:#5A3FAE}
+.s-violet.t-dark{--ground:#1F1C26;--rail:#18161E;--panel:#1B1922;--field:#292530;--line:#37323F;--raised:rgba(164,139,240,0.18);--hover:rgba(164,139,240,0.09);--ink:#ECE9F2;--muted:#ABA6B8;--faint:#9590A3;--node:#ECE9F2;--accent:#A48BF0;--accent-ink:#C3B1F7;--on-accent:#1A1230;--link:#C3B1F7}
+.s-pine.t-light{--ground:#FFFFFF;--rail:#F2F3F1;--panel:#F9FAF8;--line:#E0E2DD;--raised:rgba(47,111,91,0.13);--hover:rgba(47,111,91,0.07);--ink:#1C1F1C;--muted:#5A605A;--faint:#6B716B;--accent:#2F6F5B;--accent-ink:#27604E;--on-accent:#FFFFFF;--link:#1F56C4}
+.s-pine.t-dark{--ground:#1E201E;--rail:#171917;--panel:#1A1C1A;--field:#272A27;--line:#343834;--raised:rgba(111,191,165,0.17);--hover:rgba(111,191,165,0.09);--ink:#E8EBE8;--muted:#A5ABA5;--faint:#8E948E;--node:#E8EBE8;--accent:#6FBFA5;--accent-ink:#97D4C0;--on-accent:#0E211A;--link:#8AB4FF}
+</style>
+</helmet>
+<div data-gv-root="1" class="{{themeClass}}" style="position:relative;width:1360px;height:860px;box-sizing:border-box;display:flex;border-radius:14px;overflow:hidden;border:1px solid var(--line);background:var(--ground);color:var(--ink);font:13px/1.4 -apple-system,'PingFang SC','Helvetica Neue',sans-serif">
+
+  <!-- 左侧栏：工作区、分支、远程、标签、储藏 -->
+  <div style="width:248px;flex:none;display:flex;flex-direction:column;background:var(--rail);border-right:1px solid var(--line)">
+    <div style="height:52px;flex:none;display:flex;align-items:center;gap:8px;padding:0 18px">
+      <span style="width:12px;height:12px;border-radius:50%;background:#FF5F57"></span>
+      <span style="width:12px;height:12px;border-radius:50%;background:#FEBC2E"></span>
+      <span style="width:12px;height:12px;border-radius:50%;background:#28C840"></span>
+    </div>
+    <div style="flex:none;padding:0 6px 6px;display:flex;flex-direction:column;gap:1px">
+      <sc-for list="{{workspace}}" as="w" hint-placeholder-count="2">
+        <button class="hv" onClick="{{w.pick}}" style="display:flex;align-items:center;gap:8px;height:28px;padding:0 8px;border-radius:5px;background:{{w.bg}}">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="{{w.stroke}}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{w.icon}}"/></svg>
+          <span style="flex:1;color:{{w.fg}};font-weight:{{w.weight}}">{{w.label}}</span>
+          <span style="display:{{w.badgeDisplay}};min-width:18px;padding:0 5px;height:16px;line-height:16px;border-radius:8px;background:var(--accent);color:var(--on-accent);font-size:11px;font-weight:600;text-align:center">{{w.badge}}</span>
+        </button>
+      </sc-for>
+    </div>
+
+    <div style="flex:1;min-height:0;overflow:auto;border-top:1px solid var(--line);padding:6px 6px 12px">
+      <sc-for list="{{sections}}" as="sec" hint-placeholder-count="4">
+        <div style="margin-bottom:4px">
+          <button class="hv" onClick="{{sec.toggle}}" aria-expanded="{{sec.open}}" style="display:flex;align-items:center;gap:6px;width:100%;height:28px;padding:0 6px;border-radius:5px;box-sizing:border-box">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="transform:rotate({{sec.rot}})"><path d="M9 18l6-6-6-6"/></svg>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{sec.icon}}"/></svg>
+            <span style="flex:1;font-size:12px;font-weight:500;color:var(--muted)">{{sec.title}}</span>
+            <span style="font-size:11px;color:var(--faint)">{{sec.count}}</span>
+          </button>
+          <sc-for list="{{sec.items}}" as="it" hint-placeholder-count="3">
+            <button class="hv" onClick="{{it.pick}}" onDoubleClick="{{it.dbl}}" onContextMenu="{{it.menu}}" title="{{it.tip}}" style="display:flex;align-items:center;gap:6px;width:100%;height:25px;padding:0 8px 0 {{it.pad}};box-sizing:border-box;background:{{it.bg}};box-shadow:{{it.bar}}">
+              <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{it.chev}}"/></svg>
+              <span style="width:8px;height:8px;border-radius:50%;background:{{it.dot}};flex:none"></span>
+              <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:{{it.fg}};font-weight:{{it.weight}}">{{it.name}}</span>
+              <span style="font-size:11px;color:var(--muted);font-family:Menlo,ui-monospace,monospace">{{it.sync}}</span>
+            </button>
+          </sc-for>
+        </div>
+      </sc-for>
+    </div>
+
+    <!-- 侧栏底部：外观和设置 -->
+    <div style="flex:none;display:flex;align-items:center;gap:4px;padding:6px 8px;border-top:1px solid var(--line)">
+      <button class="hv" onClick="{{toggleTheme}}" aria-label="{{themeLabel}}" title="{{themeLabel}}" style="width:30px;height:30px;border-radius:5px;display:flex;align-items:center;justify-content:center">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{themeIcon}}"/></svg>
+      </button>
+      <a href="Settings.dc.html" class="hv" aria-label="设置" title="设置" style="width:30px;height:30px;border-radius:5px;display:flex;align-items:center;justify-content:center">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h10 M18 7h2 M4 17h2 M10 17h10 M16 10a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M8 20a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/></svg>
+      </a>
+    </div>
+  </div>
+
+  <!-- 主区域 -->
+  <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+
+    <!-- 工具栏 -->
+    <div style="height:52px;flex:none;display:flex;align-items:center;gap:14px;padding:0 14px 0 18px;border-bottom:1px solid var(--line)">
+      <div style="display:flex;align-items:center;gap:10px;min-width:0">
+        <button class="tool" onClick="{{openRepoMenu}}" aria-label="切换仓库，当前 {{repoName}}" style="display:flex;align-items:center;gap:6px;height:30px;padding:0 8px;margin-left:-8px;border-radius:5px;font-size:16px;font-weight:600">
+          {{repoName}}
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+        </button>
+      </div>
+      <div style="flex:1"></div>
+      <div style="display:flex;align-items:center;gap:2px">
+        <sc-for list="{{tools}}" as="t" hint-placeholder-count="5">
+          <button class="tool" onClick="{{t.run}}" aria-label="{{t.label}}" style="width:54px;height:42px;border-radius:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;opacity:{{t.opacity}}">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ink)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{t.icon}}"/></svg>
+            <span style="font-size:11px;color:var(--muted)">{{t.label}}</span>
+          </button>
+        </sc-for>
+      </div>
+      <label for="commit-search" style="display:flex;align-items:center;gap:6px;width:240px;height:28px;padding:0 8px;border:1px solid var(--line);border-radius:5px;background:var(--rail);box-sizing:border-box">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--faint)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z M21 21l-4.3-4.3"/></svg>
+        <input id="commit-search" value="{{query}}" onInput="{{onQuery}}" placeholder="搜索提交、分支、标签" aria-label="搜索提交、分支、标签" style="flex:1;min-width:0;background:none;border:0;color:var(--ink);font:inherit;outline-offset:2px">
+        <span style="font-size:11px;color:var(--faint)">⌘F</span>
+      </label>
+    </div>
+
+    <!-- 拉取、推送、克隆的进度和失败 -->
+    <div role="status" style="display:{{netDisplay}};flex:none;align-items:center;gap:10px;min-height:38px;padding:6px 18px;box-sizing:border-box;border-bottom:1px solid var(--line);background:{{netBg}}">
+      <span style="display:{{netSpin}};width:13px;height:13px;box-sizing:border-box;flex:none;border-radius:50%;border:2px solid var(--line);border-top-color:var(--accent);animation:gv-spin 0.8s linear infinite"></span>
+      <span style="font-weight:600;white-space:nowrap;color:{{netFg}}">{{netTitle}}</span>
+      <span style="flex:1;min-width:0;font-size:12px;color:var(--muted)">{{netDetail}}</span>
+      <sc-for list="{{netActions}}" as="a" hint-placeholder-count="2">
+        <button class="tool" onClick="{{a.run}}" style="flex:none;height:26px;padding:0 10px;border:1px solid var(--line);border-radius:5px;font-size:12px">{{a.label}}</button>
+      </sc-for>
+    </div>
+
+    <div style="flex:1;min-height:0;display:{{histDisplay}};flex-direction:column">
+    <!-- 提交列表 -->
+    <div style="flex:1;min-height:0;display:flex;flex-direction:column">
+      <div style="height:26px;flex:none;display:flex;align-items:center;padding:0 18px 0 12px;border-bottom:1px solid var(--line);background:var(--ground);font-size:11px;letter-spacing:0.04em;color:var(--faint)">
+        <span style="width:68px"></span>
+        <span style="flex:1">描述</span>
+        <span style="width:132px;padding-left:8px">作者</span>
+        <span style="width:104px;padding-left:8px">时间</span>
+        <span style="width:64px;padding-left:8px">哈希</span>
+      </div>
+      <div style="flex:1;min-height:0;overflow:auto">
+        <sc-for list="{{rows}}" as="row" hint-placeholder-count="13">
+          <button class="hv" onClick="{{row.pick}}" onContextMenu="{{row.menu}}" style="display:flex;align-items:center;width:100%;height:28px;padding:0 18px 0 12px;box-sizing:border-box;background:{{row.bg}};box-shadow:{{row.bar}}">
+            <svg width="56" height="28" viewBox="0 0 56 28" fill="none" stroke-width="2.5" stroke-linecap="round" aria-hidden="true" style="flex:none;margin-right:12px">
+              <path d="{{row.p0}}" stroke="{{row.c0}}"/><path d="{{row.p1}}" stroke="{{row.c1}}"/><path d="{{row.p2}}" stroke="{{row.c2}}"/>
+              <path d="{{row.p3}}" stroke="{{row.c3}}"/><path d="{{row.p4}}" stroke="{{row.c4}}"/><path d="{{row.p5}}" stroke="{{row.c5}}"/>
+              <circle cx="{{row.cx}}" cy="14" r="{{row.r}}" fill="var(--node)" stroke="{{row.nc}}" stroke-width="2"/>
+              <circle cx="{{row.cx}}" cy="14" r="{{row.ir}}" fill="var(--rail)" stroke="none"/>
+            </svg>
+            <sc-for list="{{row.refs}}" as="ref" hint-placeholder-count="1">
+              <span style="flex:none;margin-right:6px;padding:1px 6px;border-radius:3px;font-size:11px;font-weight:{{ref.w}};background:{{ref.bg}};color:{{ref.fg}};border:1px solid {{ref.bd}};white-space:nowrap">{{ref.name}}</span>
+            </sc-for>
+            <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:{{row.weight}}">{{row.msg}}</span>
+            <span style="width:132px;padding-left:8px;display:flex;align-items:center;gap:6px;box-sizing:border-box;color:var(--muted);font-size:12px">
+              <span style="width:18px;height:18px;border-radius:50%;background:{{row.avBg}};color:var(--on-accent);font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;flex:none">{{row.ini}}</span>
+              <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{row.author}}</span>
+            </span>
+            <span style="width:104px;padding-left:8px;box-sizing:border-box;color:var(--muted);font-size:12px;white-space:nowrap;font-variant-numeric:tabular-nums">{{row.date}}</span>
+            <span style="width:64px;padding-left:8px;box-sizing:border-box;color:var(--faint);font-size:12px;font-family:Menlo,ui-monospace,monospace">{{row.short}}</span>
+          </button>
+        </sc-for>
+      </div>
+    </div>
+
+    <!-- 提交详情 -->
+    <div style="height:424px;flex:none;display:flex;flex-direction:column;border-top:1px solid var(--line);background:var(--ground)">
+      <div style="flex:none;display:flex;gap:16px;align-items:flex-start;padding:12px 18px 12px;border-bottom:1px solid var(--line)">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:15px;font-weight:600;line-height:1.35">{{cur.msg}}</div>
+          <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px 14px;margin-top:8px;font-size:12px;color:var(--muted)">
+            <span style="display:flex;align-items:center;gap:6px">
+              <span style="width:18px;height:18px;border-radius:50%;background:{{cur.avBg}};color:var(--on-accent);font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center">{{cur.ini}}</span>
+              {{cur.author}} &lt;nicevam@pm.me&gt;
+            </span>
+            <span style="font-variant-numeric:tabular-nums">2026-{{cur.date}}</span>
+            <span>父提交 <span style="font-family:Menlo,ui-monospace,monospace;color:var(--link)">{{cur.parent}}</span></span>
+          </div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;max-width:420px">
+          <button class="tool" onClick="{{copy}}" style="display:flex;align-items:center;gap:6px;height:26px;padding:0 10px;border:1px solid var(--line);border-radius:5px;font-size:12px;font-family:Menlo,ui-monospace,monospace">
+            {{cur.short}}<span style="font-family:-apple-system,'PingFang SC',sans-serif;color:{{copyColor}}">{{copyLabel}}</span>
+          </button>
+          <span style="width:100%;text-align:right;font-size:11px;color:var(--faint)">右键提交查看更多操作</span>
+        </div>
+      </div>
+
+      <div style="flex:1;min-height:0;display:flex">
+        <!-- 改动文件 -->
+        <div style="width:340px;flex:none;display:flex;flex-direction:column;border-right:1px solid var(--line)">
+          <div style="height:28px;flex:none;display:flex;align-items:center;gap:8px;padding:0 14px;border-bottom:1px solid var(--line);font-size:12px;color:var(--muted)">
+            <span style="flex:1">{{fileCount}} 个文件</span>
+            <span style="color:var(--add);font-variant-numeric:tabular-nums">+{{totalAdd}}</span>
+            <span style="color:var(--del);font-variant-numeric:tabular-nums">−{{totalDel}}</span>
+          </div>
+          <div style="flex:1;min-height:0;overflow:auto">
+            <sc-for list="{{files}}" as="f" hint-placeholder-count="5">
+              <button class="hv" onClick="{{f.pick}}" style="display:flex;align-items:center;gap:8px;width:100%;height:30px;padding:0 14px;box-sizing:border-box;background:{{f.bg}};box-shadow:{{f.bar}}">
+                <span style="width:16px;height:16px;border-radius:3px;background:{{f.tint}};color:{{f.color}};font-size:10px;font-weight:700;font-family:Menlo,ui-monospace,monospace;display:flex;align-items:center;justify-content:center;flex:none">{{f.badge}}</span>
+                <span style="flex:1;min-width:0;display:flex;align-items:baseline;gap:8px;overflow:hidden;white-space:nowrap">
+                  <span style="flex:none">{{f.name}}</span>
+                  <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;font-size:11px;color:var(--faint)">{{f.dir}}</span>
+                </span>
+                <span style="font-size:11px;color:var(--add);font-variant-numeric:tabular-nums">+{{f.add}}</span>
+                <span style="font-size:11px;color:var(--del);font-variant-numeric:tabular-nums">−{{f.del}}</span>
+              </button>
+            </sc-for>
+          </div>
+        </div>
+
+        <!-- diff -->
+        <div style="flex:1;min-width:0;display:flex;flex-direction:column;background:var(--panel)">
+          <div style="height:28px;flex:none;display:flex;align-items:center;gap:10px;padding:0 12px 0 14px;border-bottom:1px solid var(--line);font-size:12px">
+            <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-family:Menlo,ui-monospace,monospace">{{curFile.path}}</span>
+            <div role="tablist" style="display:flex;gap:2px">
+              <sc-for list="{{fileTabs}}" as="t" hint-placeholder-count="3">
+                <button role="tab" class="seg" onClick="{{t.pick}}" aria-selected="{{t.on}}" style="height:20px;padding:0 8px;border-radius:4px;font-size:11px;background:{{t.bg}};color:{{t.fg}}">{{t.label}}</button>
+              </sc-for>
+            </div>
+            <div style="display:{{diffSegDisplay}};border:1px solid var(--line);border-radius:5px;overflow:hidden">
+              <button class="seg" onClick="{{setUnified}}" aria-pressed="{{isUnified}}" style="height:20px;padding:0 10px;font-size:11px;background:{{unifiedBg}};color:{{unifiedFg}}">统一</button>
+              <button class="seg" onClick="{{setSplit}}" aria-pressed="{{isSplit}}" style="height:20px;padding:0 10px;font-size:11px;background:{{splitBg}};color:{{splitFg}}">并排</button>
+            </div>
+          </div>
+          <!-- 文件历史 -->
+          <div style="display:{{fileHistDisplay}};flex:1;min-height:0;overflow:auto">
+            <sc-for list="{{fileHist}}" as="h" hint-placeholder-count="4">
+              <button class="hv" onClick="{{h.pick}}" style="display:flex;align-items:center;gap:10px;width:100%;height:32px;padding:0 14px;box-sizing:border-box;border-bottom:1px solid var(--line);background:{{h.bg}};box-shadow:{{h.bar}}">
+                <span style="flex:none;font-family:Menlo,ui-monospace,monospace;font-size:12px;color:var(--faint)">{{h.short}}</span>
+                <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{h.msg}}</span>
+                <span style="flex:none;font-size:12px;color:var(--muted)">{{h.author}}</span>
+                <span style="flex:none;width:76px;text-align:right;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums">{{h.date}}</span>
+              </button>
+            </sc-for>
+          </div>
+          <!-- Blame：每一行最后是谁改的 -->
+          <div style="display:{{blameDisplay}};flex:1;min-height:0;overflow:auto;padding:4px 0 8px;font-family:Menlo,ui-monospace,monospace;font-size:12px;line-height:18px">
+            <sc-for list="{{blameRows}}" as="b" hint-placeholder-count="12">
+              <div style="display:flex;min-width:max-content;background:{{b.bg}}">
+                <button onClick="{{b.pick}}" title="{{b.msg}}" style="width:176px;flex:none;display:flex;gap:8px;padding:0 8px 0 14px;box-sizing:border-box;border-right:1px solid var(--line);color:var(--muted);white-space:nowrap">
+                  <span style="color:var(--link)">{{b.short}}</span><span style="font-family:-apple-system,'PingFang SC',sans-serif;font-size:11px">{{b.who}}</span>
+                </button>
+                <span style="width:40px;flex:none;text-align:right;padding-right:8px;color:var(--faint);user-select:none">{{b.no}}</span>
+                <span style="white-space:pre;padding-right:16px;color:var(--ink)">{{b.text}}</span>
+              </div>
+            </sc-for>
+          </div>
+          <div style="display:{{diffBodyDisplay}};flex:1;min-height:0;overflow:auto;padding:4px 0 8px;font-family:Menlo,ui-monospace,monospace;font-size:12px;line-height:18px">
+            <sc-if value="{{isUnified}}" hint-placeholder-val="{{true}}">
+              <sc-for list="{{uLines}}" as="l" hint-placeholder-count="12">
+                <div style="display:flex;background:{{l.bg}};color:{{l.fg}};min-width:max-content">
+                  <span style="width:40px;flex:none;text-align:right;padding-right:8px;color:var(--faint);user-select:none">{{l.o}}</span>
+                  <span style="width:40px;flex:none;text-align:right;padding-right:8px;color:var(--faint);user-select:none">{{l.n}}</span>
+                  <span style="width:14px;flex:none;user-select:none">{{l.sign}}</span>
+                  <span style="white-space:pre;padding-right:16px">{{l.text}}</span>
+                </div>
+              </sc-for>
+            </sc-if>
+            <sc-if value="{{isSplit}}" hint-placeholder-val="{{false}}">
+              <sc-for list="{{sLines}}" as="l" hint-placeholder-count="12">
+                <div style="display:flex;min-width:max-content">
+                  <div style="width:50%;min-width:340px;flex:1;display:flex;background:{{l.lbg}};color:{{l.lfg}}">
+                    <span style="width:40px;flex:none;text-align:right;padding-right:8px;color:var(--faint);user-select:none">{{l.ln}}</span>
+                    <span style="white-space:pre;padding-right:12px">{{l.lt}}</span>
+                  </div>
+                  <div style="width:50%;min-width:340px;flex:1;display:flex;background:{{l.rbg}};color:{{l.rfg}};border-left:1px solid var(--line)">
+                    <span style="width:40px;flex:none;text-align:right;padding-right:8px;color:var(--faint);user-select:none">{{l.rn}}</span>
+                    <span style="white-space:pre;padding-right:12px">{{l.rt}}</span>
+                  </div>
+                </div>
+              </sc-for>
+            </sc-if>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    </div>
+
+    <!-- 本地改动：未暂存、已暂存、提交说明 -->
+    <div style="flex:1;min-height:0;display:{{chDisplay}}">
+      <div style="width:340px;flex:none;display:flex;flex-direction:column;border-right:1px solid var(--line)">
+        <div style="flex:1;min-height:0;overflow:auto">
+          <div style="height:28px;display:flex;align-items:center;padding:0 14px;border-bottom:1px solid var(--line);font-size:12px;color:var(--muted)">未暂存 · {{unstagedCount}}</div>
+          <sc-for list="{{unstaged}}" as="c" hint-placeholder-count="3">
+            <div class="hv" style="display:flex;align-items:center;height:30px;padding:0 10px 0 14px;background:{{c.bg}};box-shadow:{{c.bar}}">
+              <button onClick="{{c.pick}}" style="flex:1;min-width:0;height:30px;display:flex;align-items:center;gap:8px">
+                <span style="width:16px;height:16px;border-radius:3px;background:{{c.tint}};color:{{c.color}};font-size:10px;font-weight:700;font-family:Menlo,ui-monospace,monospace;display:flex;align-items:center;justify-content:center;flex:none">{{c.badge}}</span>
+                <span style="flex:none">{{c.name}}</span>
+                <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--faint)">{{c.dir}}</span>
+              </button>
+              <button onClick="{{c.discard}}" style="flex:none;padding:3px 6px;border-radius:4px;font-size:11px;color:var(--del)">丢弃</button>
+              <button onClick="{{c.toggle}}" style="flex:none;padding:3px 8px;border-radius:4px;font-size:11px;color:var(--link)">{{c.act}}</button>
+            </div>
+          </sc-for>
+          <div style="height:28px;display:flex;align-items:center;padding:0 14px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);font-size:12px;color:var(--muted)">已暂存 · {{stagedCount}}</div>
+          <sc-for list="{{stagedList}}" as="c" hint-placeholder-count="1">
+            <div class="hv" style="display:flex;align-items:center;height:30px;padding:0 10px 0 14px;background:{{c.bg}};box-shadow:{{c.bar}}">
+              <button onClick="{{c.pick}}" style="flex:1;min-width:0;height:30px;display:flex;align-items:center;gap:8px">
+                <span style="width:16px;height:16px;border-radius:3px;background:{{c.tint}};color:{{c.color}};font-size:10px;font-weight:700;font-family:Menlo,ui-monospace,monospace;display:flex;align-items:center;justify-content:center;flex:none">{{c.badge}}</span>
+                <span style="flex:none">{{c.name}}</span>
+                <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--faint)">{{c.dir}}</span>
+              </button>
+              <button onClick="{{c.toggle}}" style="flex:none;padding:3px 8px;border-radius:4px;font-size:11px;color:var(--link)">{{c.act}}</button>
+            </div>
+          </sc-for>
+        </div>
+        <div style="flex:none;display:flex;flex-direction:column;gap:8px;padding:10px 14px 12px;border-top:1px solid var(--line);background:var(--rail)">
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <label for="commit-msg" style="font-size:12px;color:var(--muted)">提交说明</label>
+            <label for="amend-last" style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);cursor:pointer">
+              <input id="amend-last" type="checkbox" checked="{{amend}}" onChange="{{toggleAmend}}" style="margin:0;accent-color:var(--accent)">修改上一次提交
+            </label>
+          </div>
+          <textarea id="commit-msg" rows="3" value="{{commitMsg}}" onInput="{{onCommitMsg}}" placeholder="简短描述这次改动" style="resize:none;background:var(--ground);border:1px solid var(--line);border-radius:5px;color:var(--ink);font:inherit;padding:6px 8px"></textarea>
+          <button onClick="{{commitStaged}}" style="height:30px;border-radius:5px;background:var(--accent);color:var(--on-accent);font-weight:600;text-align:center;opacity:{{commitOpacity}}">{{commitLabel}}</button>
+        </div>
+      </div>
+      <div style="flex:1;min-width:0;display:flex;flex-direction:column;background:var(--panel)">
+        <div style="height:28px;flex:none;display:flex;align-items:center;gap:10px;padding:0 12px 0 14px;border-bottom:1px solid var(--line);font-size:12px">
+          <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-family:Menlo,ui-monospace,monospace">{{chFile.path}}</span>
+          <div style="display:flex;border:1px solid var(--line);border-radius:5px;overflow:hidden">
+            <button class="seg" onClick="{{setUnified}}" aria-pressed="{{isUnified}}" style="height:20px;padding:0 10px;font-size:11px;background:{{unifiedBg}};color:{{unifiedFg}}">统一</button>
+            <button class="seg" onClick="{{setSplit}}" aria-pressed="{{isSplit}}" style="height:20px;padding:0 10px;font-size:11px;background:{{splitBg}};color:{{splitFg}}">并排</button>
+          </div>
+        </div>
+        <div style="flex:1;min-height:0;overflow:auto;padding:4px 0 8px;font-family:Menlo,ui-monospace,monospace;font-size:12px;line-height:18px">
+          <sc-if value="{{isUnified}}" hint-placeholder-val="{{true}}">
+            <sc-for list="{{uLines}}" as="l" hint-placeholder-count="12">
+              <div style="display:flex;background:{{l.bg}};color:{{l.fg}};min-width:max-content">
+                <span style="width:40px;flex:none;text-align:right;padding-right:8px;color:var(--faint);user-select:none">{{l.o}}</span>
+                <span style="width:40px;flex:none;text-align:right;padding-right:8px;color:var(--faint);user-select:none">{{l.n}}</span>
+                <span style="width:14px;flex:none;user-select:none">{{l.sign}}</span>
+                <span style="white-space:pre;padding-right:16px">{{l.text}}</span>
+              </div>
+            </sc-for>
+          </sc-if>
+          <sc-if value="{{isSplit}}" hint-placeholder-val="{{false}}">
+            <sc-for list="{{sLines}}" as="l" hint-placeholder-count="12">
+              <div style="display:flex;min-width:max-content">
+                <div style="width:50%;min-width:340px;flex:1;display:flex;background:{{l.lbg}};color:{{l.lfg}}">
+                  <span style="width:40px;flex:none;text-align:right;padding-right:8px;color:var(--faint);user-select:none">{{l.ln}}</span>
+                  <span style="white-space:pre;padding-right:12px">{{l.lt}}</span>
+                </div>
+                <div style="width:50%;min-width:340px;flex:1;display:flex;background:{{l.rbg}};color:{{l.rfg}};border-left:1px solid var(--line)">
+                  <span style="width:40px;flex:none;text-align:right;padding-right:8px;color:var(--faint);user-select:none">{{l.rn}}</span>
+                  <span style="white-space:pre;padding-right:12px">{{l.rt}}</span>
+                </div>
+              </div>
+            </sc-for>
+          </sc-if>
+        </div>
+      </div>
+    </div>
+
+    <!-- 储藏 -->
+    <div style="flex:1;min-height:0;display:{{stashDisplay}}">
+      <div style="width:340px;flex:none;display:flex;flex-direction:column;border-right:1px solid var(--line)">
+        <div style="height:28px;flex:none;display:flex;align-items:center;padding:0 14px;border-bottom:1px solid var(--line);font-size:12px;color:var(--muted)">储藏 · {{stashCount}}</div>
+        <div style="flex:1;min-height:0;overflow:auto">
+          <sc-for list="{{stashRows}}" as="st" hint-placeholder-count="2">
+            <button class="hv" onClick="{{st.pick}}" style="display:flex;flex-direction:column;justify-content:center;gap:2px;width:100%;height:54px;padding:0 14px;box-sizing:border-box;border-bottom:1px solid var(--line);background:{{st.bg}};box-shadow:{{st.bar}}">
+              <span style="max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500">{{st.msg}}</span>
+              <span style="max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--muted)">{{st.ref}} · {{st.branch}} · {{st.date}} · {{st.count}} 个文件</span>
+            </button>
+          </sc-for>
+          <div style="display:{{stashEmptyDisplay}};padding:24px 16px;font-size:13px;color:var(--muted)">没有储藏。点工具栏的「储藏」，可以把工作区的改动先收起来。</div>
+        </div>
+      </div>
+      <div style="flex:1;min-width:0;display:{{stashDetailDisplay}};flex-direction:column">
+        <div style="flex:none;display:flex;align-items:center;gap:12px;padding:12px 18px;border-bottom:1px solid var(--line)">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:15px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{stCur.msg}}</div>
+            <div style="margin-top:4px;font-size:12px;color:var(--muted)">储藏于 {{stCur.branch}}，{{stCur.date}}</div>
+          </div>
+          <button class="tool" onClick="{{applyStash}}" style="height:28px;padding:0 12px;border:1px solid var(--line);border-radius:5px;font-size:12px">应用</button>
+          <button onClick="{{popStash}}" style="height:28px;padding:0 12px;border-radius:5px;background:var(--accent);color:var(--on-accent);font-weight:600;font-size:12px">弹出</button>
+          <button class="tool" onClick="{{askDropStash}}" style="height:28px;padding:0 12px;border:1px solid var(--line);border-radius:5px;font-size:12px;color:var(--del)">删除</button>
+        </div>
+        <div style="flex:1;min-height:0;display:flex">
+          <div style="width:260px;flex:none;overflow:auto;border-right:1px solid var(--line)">
+            <sc-for list="{{stFiles}}" as="f" hint-placeholder-count="3">
+              <button class="hv" onClick="{{f.pick}}" style="display:flex;align-items:center;gap:8px;width:100%;height:30px;padding:0 14px;box-sizing:border-box;background:{{f.bg}};box-shadow:{{f.bar}}">
+                <span style="width:16px;height:16px;border-radius:3px;background:{{f.tint}};color:{{f.color}};font-size:10px;font-weight:700;font-family:Menlo,ui-monospace,monospace;display:flex;align-items:center;justify-content:center;flex:none">{{f.badge}}</span>
+                <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{f.name}}</span>
+                <span style="font-size:11px;color:var(--add);font-variant-numeric:tabular-nums">+{{f.add}}</span>
+                <span style="font-size:11px;color:var(--del);font-variant-numeric:tabular-nums">−{{f.del}}</span>
+              </button>
+            </sc-for>
+          </div>
+          <div style="flex:1;min-width:0;display:flex;flex-direction:column;background:var(--panel)">
+            <div style="height:28px;flex:none;display:flex;align-items:center;gap:10px;padding:0 12px 0 14px;border-bottom:1px solid var(--line);font-size:12px">
+              <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-family:Menlo,ui-monospace,monospace">{{stFile.path}}</span>
+              <div style="display:flex;border:1px solid var(--line);border-radius:5px;overflow:hidden">
+                <button class="seg" onClick="{{setUnified}}" aria-pressed="{{isUnified}}" style="height:20px;padding:0 10px;font-size:11px;background:{{unifiedBg}};color:{{unifiedFg}}">统一</button>
+                <button class="seg" onClick="{{setSplit}}" aria-pressed="{{isSplit}}" style="height:20px;padding:0 10px;font-size:11px;background:{{splitBg}};color:{{splitFg}}">并排</button>
+              </div>
+            </div>
+            <div style="flex:1;min-height:0;overflow:auto;padding:4px 0 8px;font-family:Menlo,ui-monospace,monospace;font-size:12px;line-height:18px">
+              <sc-if value="{{isUnified}}" hint-placeholder-val="{{true}}">
+                <sc-for list="{{uLines}}" as="l" hint-placeholder-count="12">
+                  <div style="display:flex;background:{{l.bg}};color:{{l.fg}};min-width:max-content">
+                    <span style="width:40px;flex:none;text-align:right;padding-right:8px;color:var(--faint);user-select:none">{{l.o}}</span>
+                    <span style="width:40px;flex:none;text-align:right;padding-right:8px;color:var(--faint);user-select:none">{{l.n}}</span>
+                    <span style="width:14px;flex:none;user-select:none">{{l.sign}}</span>
+                    <span style="white-space:pre;padding-right:16px">{{l.text}}</span>
+                  </div>
+                </sc-for>
+              </sc-if>
+              <sc-if value="{{isSplit}}" hint-placeholder-val="{{false}}">
+                <sc-for list="{{sLines}}" as="l" hint-placeholder-count="12">
+                  <div style="display:flex;min-width:max-content">
+                    <div style="width:50%;min-width:280px;flex:1;display:flex;background:{{l.lbg}};color:{{l.lfg}}">
+                      <span style="width:40px;flex:none;text-align:right;padding-right:8px;color:var(--faint);user-select:none">{{l.ln}}</span>
+                      <span style="white-space:pre;padding-right:12px">{{l.lt}}</span>
+                    </div>
+                    <div style="width:50%;min-width:280px;flex:1;display:flex;background:{{l.rbg}};color:{{l.rfg}};border-left:1px solid var(--line)">
+                      <span style="width:40px;flex:none;text-align:right;padding-right:8px;color:var(--faint);user-select:none">{{l.rn}}</span>
+                      <span style="white-space:pre;padding-right:12px">{{l.rt}}</span>
+                    </div>
+                  </div>
+                </sc-for>
+              </sc-if>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 状态栏 -->
+    <div style="height:24px;flex:none;display:flex;align-items:center;gap:16px;padding:0 14px;border-top:1px solid var(--line);background:var(--rail);font-size:11px;color:var(--faint)">
+      <span style="display:flex;align-items:center;gap:6px"><span style="width:7px;height:7px;border-radius:50%;background:var(--add)"></span>{{repoPath}}</span>
+      <span>已加载 13 / 5000 个提交</span>
+      <div style="display:{{schemeDisplay}};align-items:center;gap:8px">
+        <span>配色</span>
+        <sc-for list="{{schemeDots}}" as="d" hint-placeholder-count="5">
+          <button onClick="{{d.pick}}" aria-label="{{d.name}}" aria-pressed="{{d.on}}" title="{{d.name}}" style="width:12px;height:12px;border-radius:50%;background:{{d.color}};box-shadow:{{d.ring}}"></button>
+        </sc-for>
+      </div>
+      <span style="flex:1"></span>
+      <span>以上为示例数据</span>
+    </div>
+  </div>
+
+  <!-- 提交右键菜单 -->
+  <div onClick="{{closeCtx}}" onContextMenu="{{closeCtx}}" style="position:absolute;inset:0;z-index:9;display:{{ctxDisplay}}">
+    <div role="menu" aria-label="提交操作" style="position:absolute;left:{{ctxX}};top:{{ctxY}};width:236px;box-sizing:border-box;padding:4px;border-radius:7px;border:1px solid var(--line);background:var(--field);box-shadow:0 12px 32px rgba(0,0,0,0.3);font-size:13px">
+      <sc-for list="{{ctxItems}}" as="m" hint-placeholder-count="10">
+        <div style="display:{{m.sepDisplay}};height:1px;margin:4px 6px;background:var(--line)"></div>
+        <button role="menuitem" class="hv" onClick="{{m.run}}" aria-disabled="{{m.off}}" style="display:{{m.btnDisplay}};align-items:center;justify-content:space-between;width:100%;height:27px;padding:0 10px;box-sizing:border-box;border-radius:4px;color:{{m.fg}};cursor:{{m.cursor}}">
+          <span>{{m.label}}</span><span style="font-size:11px;color:var(--faint)">{{m.key}}</span>
+        </button>
+        <a href="Conflict.dc.html" role="menuitem" class="hv" style="display:{{m.linkDisplay}};align-items:center;height:27px;padding:0 10px;box-sizing:border-box;border-radius:4px;color:var(--ink);text-decoration:none">{{m.label}}</a>
+      </sc-for>
+    </div>
+  </div>
+
+  <!-- 操作对话框 -->
+  <div style="position:absolute;inset:0;z-index:10;display:{{modalDisplay}};align-items:center;justify-content:center;background:rgba(10,14,20,0.6)">
+    <div role="dialog" aria-label="{{dlg.title}}" style="width:440px;box-sizing:border-box;padding:22px;border-radius:10px;border:1px solid var(--line);background:var(--ground);box-shadow:0 24px 60px rgba(0,0,0,0.5);display:flex;flex-direction:column;gap:6px">
+      <div style="font-size:16px;font-weight:600">{{dlg.title}}</div>
+      <div style="font-size:13px;color:var(--muted)">{{dlg.desc}}</div>
+      <div style="display:{{dlg.codeDisplay}};margin-top:12px;padding:10px 12px;border-radius:6px;background:var(--rail);font-family:Menlo,ui-monospace,monospace;font-size:12px;line-height:18px;white-space:pre-wrap;word-break:break-all">{{dlg.code}}</div>
+      <div style="display:{{dlg.userDisplay}};flex-direction:column;gap:6px;margin-top:14px">
+        <label for="dlg-user" style="font-size:12px;color:var(--muted)">用户名</label>
+        <input id="dlg-user" value="{{userField}}" onInput="{{onUserField}}" autocomplete="off" style="height:32px;padding:0 10px;border:1px solid var(--line);border-radius:5px;background:var(--rail);color:var(--ink);font:inherit">
+      </div>
+      <div style="display:{{dlg.inputDisplay}};flex-direction:column;gap:6px;margin-top:14px">
+        <label for="dlg-field" style="font-size:12px;color:var(--muted)">{{dlg.label}}</label>
+        <input id="dlg-field" type="{{dlg.fieldType}}" autocomplete="off" value="{{field}}" onInput="{{onField}}" placeholder="{{dlg.ph}}" style="height:32px;padding:0 10px;border:1px solid var(--line);border-radius:5px;background:var(--rail);color:var(--ink);font:inherit">
+      </div>
+      <div style="display:{{authErrorDisplay}};margin-top:10px;font-size:12px;color:var(--del)">{{authError}}</div>
+      <label for="dlg-remember" style="display:{{dlg.rememberDisplay}};align-items:center;gap:6px;margin-top:12px;font-size:12px;color:var(--muted);cursor:pointer">
+        <input id="dlg-remember" type="checkbox" checked="{{remember}}" onChange="{{toggleRemember}}" style="margin:0;accent-color:var(--accent)">{{dlg.remember}}
+      </label>
+      <div style="display:{{dlg.modesDisplay}};flex-direction:column;gap:6px;margin-top:14px">
+        <sc-for list="{{resetModes}}" as="r" hint-placeholder-count="3">
+          <button onClick="{{r.pick}}" aria-pressed="{{r.on}}" style="display:flex;flex-direction:column;gap:1px;padding:8px 10px;border-radius:6px;border:1px solid {{r.bd}};background:{{r.bg}}">
+            <span style="font-weight:600">{{r.label}}</span>
+            <span style="font-size:12px;color:{{r.hintFg}}">{{r.hint}}</span>
+          </button>
+        </sc-for>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:20px">
+        <button class="tool" onClick="{{closeModal}}" style="height:30px;padding:0 14px;border:1px solid var(--line);border-radius:5px">取消</button>
+        <button onClick="{{confirm}}" style="height:30px;padding:0 14px;border-radius:5px;background:var(--accent);color:var(--on-accent);font-weight:600;opacity:{{okOpacity}}">{{dlg.ok}}</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 操作反馈 -->
+  <div role="status" style="position:absolute;left:50%;bottom:40px;transform:translateX(-50%);z-index:11;display:{{toastDisplay}};align-items:center;gap:8px;padding:8px 14px;border-radius:6px;border:1px solid var(--line);background:var(--field);box-shadow:0 8px 24px rgba(0,0,0,0.4);font-size:13px">
+    <span style="width:8px;height:8px;border-radius:50%;background:var(--add)"></span>{{toast}}
+  </div>
+</div>
+</x-dc>
+
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1360,"height":860}}'>
+class Component extends DCLogic {
+  readSign() {
+    try { return localStorage.getItem('gitviz-sign') !== 'off'; } catch (e) { return true; }
+  }
+
+  readScheme() {
+    try { return localStorage.getItem('gitviz-scheme-v2') || 'graphite'; } catch (e) { return 'graphite'; }
+  }
+
+  readTheme() {
+    try { return localStorage.getItem('gitviz-theme') || 'light'; } catch (e) { return 'light'; }
+  }
+
+  constructor(props) {
+    super(props);
+    this.state = { theme: this.readTheme(), scheme: this.readScheme(), sel: '39a636e', fileIdx: 0, mode: 'unified', closed: { tag: true }, copied: false, fileTab: 'diff', ctx: null, target: '', amend: false, commitMsg: '', amended: {},
+      renamed: {}, deleted: {}, repo: 'gitviz', clonedRepos: [], net: null, pushRejected: true,
+      sign: this.readSign(), signUnlocked: false, sshUnlocked: false, httpsSaved: false, hostTrusted: false,
+      userField: '', remember: true, authError: '', authTries: 0, after: '', resetMode: 'mixed', view: 'history', filter: '', query: '', staged: { 'README.md': true }, chName: 'Theme.kt', current: 'main', modal: null, field: '', extraBranches: [], extraTags: [], toast: '', done: {}, restored: [], stashIdx: 0, stashFile: 0,
+      stashes: [
+        { msg: 'WIP：并排视图滚动同步', branch: 'feature/split-diff', date: '10-31 18:20', files: [
+          { t: 'M', name: 'Main.kt', dir: 'src/main/kotlin/gitviz', add: 12, del: 4 },
+          { t: 'A', name: 'SplitDiff.kt', dir: 'src/main/kotlin/gitviz', add: 38, del: 0 },
+          { t: 'M', name: 'DiffLines.kt', dir: 'src/main/kotlin/gitviz', add: 9, del: 1 },
+        ] },
+        { msg: 'WIP：试验侧栏宽度', branch: 'main', date: '10-29 21:02', files: [
+          { t: 'M', name: 'Sidebar.kt', dir: 'src/main/kotlin/gitviz', add: 6, del: 2 },
+        ] },
+      ] };
+  }
+
+  renderVals() {
+    const s = this.state;
+    const set = (p) => this.setState(p);
+    const dark = s.theme === 'dark';
+    const T = dark
+      ? { lanes: ['#4DA3FF', '#FF7A59', '#3FB950', '#E66CC8'], add: '#3FB950', del: '#F85149', mod: '#D29922', link: '#8AB4FF' }
+      : { lanes: ['#1F6FD6', '#C2570C', '#1A7F4B', '#B8399A'], add: '#1A7F4B', del: '#CF222E', mod: '#9A6700', link: '#1F56C4' };
+    const LANES = T.lanes;
+    const INK = 'var(--ink)', RAIL = 'var(--rail)', RAISED = 'var(--raised)', SIGNAL = 'var(--accent)';
+    const X = (l) => 14 * l + 7;
+    const curve = (x1, y1, x2, y2) => x1 === x2
+      ? 'M' + x1 + ' ' + y1 + 'L' + x2 + ' ' + y2
+      : 'M' + x1 + ' ' + y1 + 'C' + x1 + ' ' + (y1 + y2) / 2 + ' ' + x2 + ' ' + (y1 + y2) / 2 + ' ' + x2 + ' ' + y2;
+    const AV = { VamPeng: { ini: 'VP', bg: '#4DA3FF' }, Mika: { ini: 'MK', bg: '#E66CC8' } };
+
+    // id, 说明, 作者, 时间, 所在列, 穿过的列, 汇入的列, 发出的列, 引用, 父提交
+    const raw = [
+      ['39a636e', 'Add ref sidebar, night-map theme and macOS glass window', 'VamPeng', '10-31 22:30', 0, [], [], [0], [['HEAD', 'head'], ['main', 'current'], ['origin/main', 'remote']], '6bd1a8b'],
+      ['c7d2e41', 'Split diff: sync scrolling between panes', 'Mika', '10-31 19:42', 1, [0], [], [1], [['feature/split-diff', 'local']], 'a94b7d0'],
+      ['b81f9a6', "Merge branch 'fix/refresh-selection'", 'VamPeng', '10-30 21:15', 0, [1], [0], [0, 2], [], 'e3f1b92'],
+      ['5e0ac13', 'Keep selection after refresh', 'VamPeng', '10-30 20:58', 2, [0, 1], [2], [2], [['fix/refresh-selection', 'local']], '27c6e58'],
+      ['a94b7d0', 'Split diff: align hunks into rows', 'Mika', '10-30 18:20', 1, [0, 2], [1], [1], [], '90d48ac'],
+      ['27c6e58', 'Reset diff scroll when selection changes', 'VamPeng', '10-29 23:04', 2, [0, 1], [2], [2], [], '4bb7e05'],
+      ['e3f1b92', 'Add tag filter to sidebar', 'VamPeng', '10-29 17:36', 0, [1, 2], [0], [0], [], '4bb7e05'],
+      ['90d48ac', 'Split diff: parse unified diff into line pairs', 'Mika', '10-28 22:11', 1, [0, 2], [1], [1], [], '1d52f7b'],
+      ['4bb7e05', 'Extract diff line classifier', 'VamPeng', '10-28 15:49', 0, [1], [0, 2], [0], [], 'f06a3c9'],
+      ['1d52f7b', 'Sketch split diff view', 'Mika', '10-27 20:03', 1, [0], [1], [1], [], 'f06a3c9'],
+      ['f06a3c9', 'Color ref chips by branch lane', 'VamPeng', '10-27 11:27', 0, [], [0, 1], [0], [], '7ad90e4'],
+      ['7ad90e4', 'Add GraphLayout lane assignment', 'VamPeng', '10-26 22:40', 0, [], [0], [0], [], '6bd1a8b'],
+      ['6bd1a8b', 'Add read-only git client with branch graph', 'VamPeng', '10-26 14:12', 0, [], [0], [], [['v0.1.0', 'tag']], '—'],
+    ];
+
+    const chip = (name, kind, lane) => {
+      const c = LANES[lane];
+      if (kind === 'head') return { name, bg: INK, fg: RAIL, bd: INK, w: 600 };
+      if (kind === 'current') return { name, bg: SIGNAL, fg: 'var(--on-accent)', bd: SIGNAL, w: 600 };
+      if (kind === 'remote') return { name, bg: 'transparent', fg: c, bd: c, w: 500 };
+      if (kind === 'tag') return { name, bg: 'transparent', fg: 'var(--muted)', bd: 'var(--faint)', w: 500 };
+      return { name, bg: c + '33', fg: c, bd: c + '33', w: 500 };
+    };
+
+    const nameOf = (b) => s.renamed[b] || b;
+    const ctxAt = (e) => {
+      e.preventDefault();
+      const root = e.currentTarget.closest('[data-gv-root]').getBoundingClientRect();
+      const k = root.width / 1360;
+      return { x: Math.min((e.clientX - root.left) / k, 1360 - 244), y: Math.min((e.clientY - root.top) / k, 860 - 340) };
+    };
+    const tips = { main: '39a636e', 'feature/split-diff': 'c7d2e41', 'fix/refresh-selection': '5e0ac13' };
+    s.extraBranches.forEach((b) => { tips[b.name] = b.id; });
+    const headId = tips[s.current];
+    const kindOf = (name, kind) => (name === s.current ? 'current' : kind === 'current' ? 'local' : kind);
+    const rows = raw.map((r) => {
+      const [id, msg, author, date, node, pass, inn, out, refs] = r;
+      const seg = [];
+      pass.forEach((l) => seg.push([curve(X(l), 0, X(l), 28), LANES[l]]));
+      inn.forEach((l) => seg.push([curve(X(l), 0, X(node), 14), LANES[l]]));
+      out.forEach((l) => seg.push([curve(X(node), 14, X(l), 28), LANES[l]]));
+      const head = id === headId;
+      const o = {
+        id, msg: s.amended[id] || msg, author, date, short: id,
+        ini: AV[author].ini, avBg: AV[author].bg,
+        cx: X(node), r: head ? 6 : 4.5, ir: head ? 1.8 : 0, nc: LANES[node],
+        refs: (head ? [chip('HEAD', 'head', node)] : []).concat(
+          refs.filter((x) => x[1] !== 'head' && !s.deleted[x[0]]).map((x) => chip(nameOf(x[0]), kindOf(x[0], x[1]), node)),
+          s.extraBranches.filter((b) => b.id === id && !s.deleted[b.name]).map((b) => chip(nameOf(b.name), kindOf(b.name, 'local'), node)),
+          s.extraTags.filter((t) => t.id === id).map((t) => chip(t.name, 'tag', node))),
+        weight: head ? 600 : 400,
+        bg: s.sel === id ? RAISED : 'transparent',
+        bar: s.sel === id ? 'inset 2px 0 0 ' + SIGNAL : 'none',
+        pick: () => set({ sel: id, fileIdx: 0 }),
+        menu: (e) => set({ sel: id, fileIdx: 0, ctx: ctxAt(e) }),
+      };
+      for (let i = 0; i < 6; i++) { o['p' + i] = seg[i] ? seg[i][0] : ''; o['c' + i] = seg[i] ? seg[i][1] : 'none'; }
+      return o;
+    });
+    const rawCur = raw.find((r) => r[0] === s.sel) || raw[0];
+    const cur = rows.find((r) => r.id === s.sel) || rows[0];
+    cur.parent = rawCur[9];
+    const q = s.query.trim().toLowerCase();
+    const shownRows = q ? rows.filter((r) => (r.msg + r.author + r.id + r.refs.map((x) => x.name).join(' ')).toLowerCase().includes(q)) : rows;
+
+    // 侧栏
+    const pickRef = (id) => () => set({ sel: id, fileIdx: 0 });
+    const leaf = (name, depth, id, o) => ({
+      name, pad: (10 + 14 * depth) + 'px', chev: '', dot: o.branch === s.current ? SIGNAL : 'transparent',
+      fg: o.branch === s.current ? 'var(--accent-ink)' : INK, weight: o.branch === s.current ? 600 : 400, sync: o.sync || '',
+      tip: o.branch ? '双击切换到这个分支' : '',
+      menu: (e) => { const at = ctxAt(e); if (o.branch) set({ ctx: Object.assign(at, { branch: o.branch }) }); },
+      dbl: () => { if (o.branch && o.branch !== s.current) flash('已切换到 ' + o.branch, { current: o.branch, sel: id, fileIdx: 0 }); },
+      bg: id && s.sel === id ? RAISED : 'transparent', bar: id && s.sel === id ? 'inset 2px 0 0 ' + SIGNAL : 'none',
+      pick: pickRef(id),
+    });
+    const folder = (name, depth) => ({
+      name, pad: (10 + 14 * depth) + 'px', chev: 'M6 9l6 6 6-6', dot: 'transparent', fg: 'var(--muted)', weight: 400, sync: '',
+      bg: 'transparent', bar: 'none', pick: () => {}, dbl: () => {}, tip: '', menu: (e) => e.preventDefault(),
+    });
+    const nested = (dir, short, id, o) => {
+      if (s.deleted[o.branch]) return [];
+      if (s.renamed[o.branch]) return [leaf(s.renamed[o.branch], 0, id, o)];
+      return [folder(dir, 0), leaf(short, 1, id, o)];
+    };
+    const branchRows = [leaf('main', 0, '39a636e', { branch: 'main', sync: '↑0 ↓0' })].concat(
+      nested('feature', 'split-diff', 'c7d2e41', { branch: 'feature/split-diff', sync: '↑3' }),
+      nested('fix', 'refresh-selection', '5e0ac13', { branch: 'fix/refresh-selection' }),
+      s.extraBranches.filter((b) => !s.deleted[b.name]).map((b) => leaf(nameOf(b.name), 0, b.id, { branch: b.name })),
+    );
+    const secDef = [
+      ['branch', '本地分支', 'M6 3v12 M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M18 9a9 9 0 0 1-9 9', branchRows.filter((i) => !i.chev).length, branchRows],
+      ['remote', '远程', 'M18 10h-1.3A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z', 1, [folder('origin', 0), leaf('main', 1, '39a636e', {})]],
+      ['tag', '标签', 'M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L2 12V2h10l8.6 8.6a2 2 0 0 1 0 2.8z M7 7h.01', 1 + s.extraTags.length, [leaf('v0.1.0', 0, '6bd1a8b', {}), ...s.extraTags.map((t) => leaf(t.name, 0, t.id, {}))]],
+      ['stash', '储藏', 'M21 8v13H3V8 M1 3h22v5H1z M10 12h4', s.stashes.length, s.stashes.map((st, i) => {
+        const on = s.view === 'stash' && s.stashIdx === i;
+        return Object.assign(leaf(st.msg, 0, null, {}), {
+          bg: on ? RAISED : 'transparent', bar: on ? 'inset 2px 0 0 ' + SIGNAL : 'none',
+          pick: () => set({ view: 'stash', stashIdx: i, stashFile: 0 }),
+        });
+      })],
+    ];
+    const sections = secDef.map((d) => {
+      const f = q;
+      const matches = f ? d[4].filter((i) => !i.chev && i.name.toLowerCase().includes(f)).map((i) => Object.assign({}, i, { pad: '10px' })) : d[4];
+      const open = f ? true : !s.closed[d[0]];
+      return {
+        title: d[1], icon: d[2], count: f ? matches.length : d[3], open, rot: open ? '90deg' : '0deg',
+        toggle: () => set({ closed: Object.assign({}, s.closed, { [d[0]]: open }) }),
+        items: open ? matches : [],
+      };
+    });
+    const wsBase = [
+      { label: '本地改动', icon: 'M12 20h9 M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z', badge: '3', badgeDisplay: 'block', bg: 'transparent', fg: INK, stroke: 'var(--muted)', weight: 400 },
+      { label: '所有提交', icon: 'M3 12a9 9 0 1 0 3-6.7L3 8 M3 3v5h5 M12 7v5l4 2', badge: '', badgeDisplay: 'none', bg: RAISED, fg: INK, stroke: SIGNAL, weight: 600 },
+    ];
+    const rem = 4 + s.restored.length - Object.keys(s.done).length;
+    const workspace = wsBase.map((w, i) => {
+      const on = s.view === (i === 1 ? 'history' : 'changes');
+      return Object.assign({}, w, { badge: i === 0 ? String(rem) : '', badgeDisplay: i === 0 && rem > 0 ? 'block' : 'none', bg: on ? RAISED : 'transparent', stroke: on ? 'var(--accent-ink)' : 'var(--muted)', weight: on ? 600 : 400, pick: () => set({ view: i === 1 ? 'history' : 'changes' }) });
+    });
+    const tools = [
+      { label: '刷新', icon: 'M3 12a9 9 0 0 1 15-6.7L21 8 M21 3v5h-5 M21 12a9 9 0 0 1-15 6.7L3 16 M3 21v-5h5', opacity: 1, off: false },
+      { label: '拉取', icon: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M7 10l5 5 5-5 M12 15V3', opacity: 0.4, off: true },
+      { label: '推送', icon: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M17 8l-5-5-5 5 M12 3v12', opacity: 0.4, off: true },
+      { label: '新建分支', icon: 'M6 3v12 M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M18 9a9 9 0 0 1-9 9', opacity: 0.4, off: true },
+      { label: '储藏', icon: 'M21 8v13H3V8 M1 3h22v5H1z M10 12h4', opacity: 0.4, off: true },
+    ].map((t, i) => Object.assign(t, {
+      opacity: 1, off: false,
+      run: i === 4 ? () => (rem > 0 ? set({ modal: 'stash', field: '' }) : flash('没有可储藏的改动'))
+        : i === 3 ? () => set({ modal: 'branch', field: '' })
+        : i === 1 ? () => doPull()
+          : i === 2 ? () => doPush()
+            : () => flash('已刷新：13 个提交'),
+    }));
+
+    // 改动文件
+    const SETS = {
+      '39a636e': ['A:Sidebar.kt:185:0', 'A:Vibrancy.kt:138:0', 'M:Theme.kt:71:12', 'M:Main.kt:214:86', 'M:GraphCell.kt:14:9', 'A:RefTree.kt:26:0'],
+      'c7d2e41': ['M:SplitDiff.kt:38:6', 'M:Main.kt:12:4'], 'a94b7d0': ['A:SplitDiff.kt:96:0', 'M:Main.kt:22:8', 'M:DiffLines.kt:9:1'],
+      '90d48ac': ['M:DiffLines.kt:31:5', 'A:DiffLinesTest.kt:35:0'], '1d52f7b': ['A:SplitDiff.kt:54:0'],
+      'b81f9a6': ['M:Main.kt:14:6', 'M:GitRepo.kt:6:2'], '5e0ac13': ['M:Main.kt:14:6', 'M:GitRepo.kt:6:2'], '27c6e58': ['M:Main.kt:4:1'],
+      'e3f1b92': ['M:Sidebar.kt:24:3'], '4bb7e05': ['A:DiffLines.kt:28:0', 'M:Main.kt:12:20'],
+      'f06a3c9': ['M:GraphCell.kt:16:4', 'M:Main.kt:18:6'], '7ad90e4': ['A:GraphLayout.kt:102:0', 'A:GraphLayoutTest.kt:59:0'],
+      '6bd1a8b': ['A:GitRepo.kt:175:0', 'A:Main.kt:310:0', 'A:build.gradle.kts:38:0', 'A:README.md:31:0'],
+    };
+    const TINT = { A: [T.add, 'A'], M: [T.mod, 'M'], D: [T.del, 'D'] };
+    const fileList = (SETS[s.sel] || SETS['39a636e']).map((x, i) => {
+      const [t, name, add, del] = x.split(':');
+      const dir = name.endsWith('.kt') ? (name.indexOf('Test') > 0 ? 'src/test/kotlin/gitviz' : 'src/main/kotlin/gitviz') : '';
+      return {
+        name, dir, add: +add, del: +del, path: (dir ? dir + '/' : '') + name,
+        color: TINT[t][0], tint: TINT[t][0] + '26', badge: t,
+        bg: s.fileIdx === i ? RAISED : 'transparent', bar: s.fileIdx === i ? 'inset 2px 0 0 ' + SIGNAL : 'none',
+        pick: () => set({ fileIdx: i }),
+      };
+    });
+    const curFile = fileList[Math.min(s.fileIdx, fileList.length - 1)];
+
+    // 本地改动
+    const CH0 = [
+      { name: 'Theme.kt', dir: 'src/main/kotlin/gitviz', t: 'M' }, { name: 'GraphCell.kt', dir: 'src/main/kotlin/gitviz', t: 'M' },
+      { name: 'prototype-notes.md', dir: 'docs', t: '?' }, { name: 'README.md', dir: '', t: 'M' },
+    ];
+    const CH = CH0.concat(s.restored);
+    const CHT = { M: T.mod, '?': T.link, A: T.add };
+    const chRow = (c) => {
+      const on = s.chName === c.name, isStaged = !!s.staged[c.name];
+      return {
+        name: c.name, dir: c.dir, badge: c.t, color: CHT[c.t], tint: CHT[c.t] + '26',
+        bg: on ? RAISED : 'transparent', bar: on ? 'inset 2px 0 0 ' + SIGNAL : 'none',
+        act: isStaged ? '取消暂存' : '暂存',
+        discard: () => set({ modal: 'discard', target: c.name, field: '' }),
+        pick: () => set({ chName: c.name }),
+        toggle: () => set({ staged: Object.assign({}, s.staged, { [c.name]: !isStaged }) }),
+      };
+    };
+    const unstaged = CH.filter((c) => !s.done[c.name] && !s.staged[c.name]).map(chRow);
+    const stagedList = CH.filter((c) => !s.done[c.name] && s.staged[c.name]).map(chRow);
+    const chSrc = CH.find((c) => c.name === s.chName) || CH[0];
+    const chFile = { name: chSrc.name, path: (chSrc.dir ? chSrc.dir + '/' : '') + chSrc.name };
+
+    // 储藏
+    const stCur = s.stashes[s.stashIdx] || { msg: '', branch: '', date: '', files: [] };
+    const stFiles = stCur.files.map((f, i) => ({
+      name: f.name, add: f.add, del: f.del, badge: f.t, color: TINT[f.t][0], tint: TINT[f.t][0] + '26',
+      path: (f.dir ? f.dir + '/' : '') + f.name,
+      bg: s.stashFile === i ? RAISED : 'transparent', bar: s.stashFile === i ? 'inset 2px 0 0 ' + SIGNAL : 'none',
+      pick: () => set({ stashFile: i }),
+    }));
+    const stFile = stFiles[s.stashFile] || { name: '', path: '' };
+    const stashRows = s.stashes.map((st, i) => ({
+      msg: st.msg, branch: st.branch, date: st.date, count: st.files.length, ref: 'stash@{' + i + '}',
+      bg: s.stashIdx === i ? RAISED : 'transparent', bar: s.stashIdx === i ? 'inset 2px 0 0 ' + SIGNAL : 'none',
+      pick: () => set({ stashIdx: i, stashFile: 0 }),
+    }));
+
+    // diff
+    const DIFFS = {
+      'Sidebar.kt': ['@@ -0,0 +1,14 @@', '+package gitviz', '+', '+/** 左侧引用树。引用指向的提交没加载时显示为灰色，不能点。 */', '+@Composable', '+fun RefSidebar(', '+    refs: List<RefTarget>,', '+    selectedId: String?,', '+    isLoaded: (String) -> Boolean,', '+    onSelect: (RefTarget) -> Unit,', '+    modifier: Modifier,', '+) {', '+    var filter by remember { mutableStateOf("") }', '+    var collapsed by remember { mutableStateOf(setOf("${RefKind.TAG}:")) }', '+}'],
+      'Theme.kt': ['@@ -20,12 +20,16 @@ import androidx.compose.ui.unit.sp', ' ', '-/** 深色主题配色。 */', '+/** 夜间线路图配色：蓝灰底色，琥珀色只用来标“当前位置”。 */', ' object Palette {', '-    val Ground = Color(0xFF16181D)', '-    val Rail = Color(0xFF101216)', '+    val Ground = Color(0xFF1A2330)', '+    val Rail = Color(0xFF141C27)', '+    val Raised = Color(0xFF232E3D)', '+    val Line = Color(0xFF2F3C4E)', '     val Ink = Color(0xFFE6EBF2)', '     val Muted = Color(0xFF93A1B3)', '     val Faint = Color(0xFF64748A)', '+    val Signal = Color(0xFFF2B233)', ' ', '     val Added = Color(0xFF3DD68C)'],
+      'GraphCell.kt': ['@@ -44,9 +44,14 @@ fun GraphCell(row: GraphRow, lanesShown: Int, isHeadCommit: Boolean) {', '         if (row.node < lanesShown) {', '             val center = Offset(x(row.node), mid)', '-            drawCircle(laneColor(row.node), 4.dp.toPx(), center)', '+            // 提交是站点；HEAD 是更大的换乘站', '+            val r = (if (isHeadCommit) 6.5.dp else 4.5.dp).toPx()', '+            drawCircle(laneColor(row.node), r, center)', '+            drawCircle(Palette.Ink, r - 2.dp.toPx(), center)', '+            if (isHeadCommit) drawCircle(Palette.Rail, 1.5.dp.toPx(), center)', '         }', '     }', ' }'],
+    };
+    const FALLBACK = ['@@ -1,6 +1,9 @@', ' package gitviz', ' ', '-// TODO', '+// 示例 diff：这个文件的内容在原型里没有展开', '+', '+fun placeholder() = Unit', ' ', ' object Placeholder'];
+    const buildDiff = (name) => {
+    const src = DIFFS[name] || FALLBACK;
+    const DEL = [T.del + '1F', T.del], ADD = [T.add + '1A', T.add], HUNK = [T.link + '1A', T.link], CTX = ['transparent', 'var(--muted)'];
+    let o = 0, n = 0;
+    const parsed = src.map((t) => {
+      if (t.startsWith('@@')) { const m = /@@ -(\d+)(?:,\d+)? \+(\d+)/.exec(t); o = +m[1]; n = +m[2]; return { k: 'h', text: t }; }
+      const c = t[0], text = t.slice(1);
+      if (c === '+') return { k: 'a', n: n++, text };
+      if (c === '-') return { k: 'd', o: o++, text };
+      return { k: 'c', o: o++, n: n++, text };
+    });
+    const uLines = parsed.map((p) => {
+      const sty = p.k === 'a' ? ADD : p.k === 'd' ? DEL : p.k === 'h' ? HUNK : CTX;
+      return { bg: sty[0], fg: sty[1], text: p.text, o: p.k === 'h' || p.k === 'a' ? '' : p.o, n: p.k === 'h' || p.k === 'd' ? '' : p.n, sign: p.k === 'a' ? '+' : p.k === 'd' ? '−' : '' };
+    });
+    const sLines = [];
+    let dels = [], adds = [];
+    const flush = () => {
+      const len = Math.max(dels.length, adds.length);
+      for (let i = 0; i < len; i++) {
+        const d = dels[i], a = adds[i];
+        sLines.push({
+          lbg: d ? DEL[0] : 'transparent', lfg: d ? DEL[1] : CTX[1], ln: d ? d.o : '', lt: d ? d.text : '',
+          rbg: a ? ADD[0] : 'transparent', rfg: a ? ADD[1] : CTX[1], rn: a ? a.n : '', rt: a ? a.text : '',
+        });
+      }
+      dels = []; adds = [];
+    };
+    parsed.forEach((p) => {
+      if (p.k === 'd') dels.push(p);
+      else if (p.k === 'a') adds.push(p);
+      else {
+        flush();
+        if (p.k === 'h') sLines.push({ lbg: HUNK[0], lfg: HUNK[1], ln: '', lt: p.text, rbg: HUNK[0], rfg: HUNK[1], rn: '', rt: '' });
+        else sLines.push({ lbg: 'transparent', lfg: CTX[1], ln: p.o, lt: p.text, rbg: 'transparent', rfg: CTX[1], rn: p.n, rt: p.text });
+      }
+    });
+    flush();
+    return { uLines, sLines };
+    };
+    const hd = buildDiff(s.view === 'changes' ? chFile.name : s.view === 'stash' ? stFile.name : curFile.name);
+
+    // 文件历史和 Blame
+    const touches = (id) => (SETS[id] || []).findIndex((x) => x.split(':')[1] === curFile.name);
+    const hist = raw.filter((r) => touches(r[0]) >= 0);
+    const openCommit = (id) => () => set({ sel: id, fileIdx: Math.max(touches(id), 0) });
+    const fileHist = hist.map((r) => ({
+      short: r[0], msg: r[1], author: r[2], date: r[3],
+      bg: r[0] === s.sel ? RAISED : 'transparent', bar: r[0] === s.sel ? 'inset 2px 0 0 ' + SIGNAL : 'none',
+      pick: openCommit(r[0]),
+    }));
+    const here = hist.findIndex((r) => r[0] === s.sel);
+    const owner = hist[here] || rawCur;
+    const older = hist[here + 1] || owner;
+    const srcLines = (DIFFS[curFile.name] || FALLBACK);
+    const start = +(/\+(\d+)/.exec(srcLines[0]) || [0, 1])[1];
+    let lastOwner = null;
+    const blameRows = srcLines.filter((l) => l[0] === '+' || l[0] === ' ').map((l, i) => {
+      const who = l[0] === '+' ? owner : older;
+      const first = who !== lastOwner;
+      lastOwner = who;
+      return {
+        no: start + i, text: l.slice(1), msg: who[1], short: first ? who[0] : '', who: first ? who[2] : '',
+        bg: who === owner ? 'var(--hover)' : 'transparent', pick: openCommit(who[0]),
+      };
+    });
+    const tab = s.fileTab;
+    const flash = (msg, extra) => {
+      set(Object.assign({ toast: msg }, extra || {}));
+      setTimeout(() => this.setState({ toast: '' }), 2200);
+    };
+    const sh = cur.short;
+    const DLG = {
+      checkout: { title: '检出提交', desc: '工作区会切换到 ' + sh + '，进入分离 HEAD 状态。', input: false, ok: '检出' },
+      branch: { title: '新建分支', desc: '从 ' + sh + ' 创建分支。', input: true, label: '分支名', ph: 'feature/my-branch', ok: '创建分支' },
+      tag: { title: '打标签', desc: '给 ' + sh + ' 打一个标签。', input: true, label: '标签名', ph: 'v0.2.0', ok: '创建标签' },
+      cherry: { title: 'Cherry-pick', desc: '把 ' + sh + ' 的改动应用到 ' + s.current + ' 上。', input: false, ok: '应用' },
+      revert: { title: '回滚提交', desc: '在 ' + s.current + ' 上新增一个提交，撤销 ' + sh + ' 的改动。', input: false, ok: '回滚' },
+      stash: { title: '储藏改动', desc: '把工作区的 ' + rem + ' 个改动收起来，之后可以再恢复。', input: true, optional: true, label: '说明（可选）', ph: 'WIP on ' + s.current, ok: '储藏' },
+      reset: { title: '重置 ' + s.current, desc: '把 ' + s.current + ' 移到 ' + sh + '。', input: false, modes: true, ok: '重置' },
+      ssh: { title: '解锁 SSH 密钥', desc: '连接 origin 需要 ~/.ssh/id_ed25519 的密码。', input: true, secret: true, label: '密钥密码', ok: '解锁', remember: '记住到钥匙串' },
+      https: { title: '登录 github.com', desc: '这个仓库通过 HTTPS 连接。GitHub 不接受账号密码，要用个人访问令牌。', input: true, secret: true, user: true, label: '个人访问令牌', ok: '登录', remember: '保存到钥匙串' },
+      hostKey: { title: '确认服务器身份', desc: '第一次连接 github.com。确认下面的指纹和官方公布的一致，再继续。', input: false, code: 'ED25519\nSHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU', ok: '信任并继续' },
+      sign: { title: '解锁签名密钥', desc: '这次提交需要签名，请输入签名密钥的密码。', input: true, secret: true, label: '密钥密码', ok: '解锁并提交', remember: '这次运行期间记住' },
+      discard: { title: '丢弃改动', desc: '「' + s.target + '」的改动会被丢弃，无法恢复。', input: false, ok: '丢弃' },
+      renameBranch: { title: '重命名分支', desc: '把 ' + nameOf(s.target) + ' 改成新的名字。', input: true, label: '新分支名', ph: 'feature/new-name', ok: '重命名' },
+      deleteBranch: { title: '删除分支', desc: '删除本地分支 ' + nameOf(s.target) + '。没有合并的提交可能找不回来。', input: false, ok: '删除' },
+      clone: { title: '克隆仓库', desc: '把远程仓库下载到 ~/Desktop/pro。', input: true, label: '仓库地址', ph: 'git@github.com:owner/repo.git', ok: '克隆' },
+      dropStash: { title: '删除储藏', desc: '「' + stCur.msg + '」会被永久删除，无法恢复。', input: false, ok: '删除' },
+    };
+    const base = DLG[s.modal] || DLG.checkout;
+    const dlg = Object.assign({ label: '', ph: '', code: '', remember: '' }, base, {
+      inputDisplay: base.input ? 'flex' : 'none', modesDisplay: base.modes ? 'flex' : 'none',
+      fieldType: base.secret ? 'password' : 'text', userDisplay: base.user ? 'flex' : 'none',
+      codeDisplay: base.code ? 'block' : 'none', rememberDisplay: base.remember ? 'flex' : 'none',
+    });
+    const resetModes = [
+      ['soft', '软重置 soft', '撤销提交，改动保留在暂存区'],
+      ['mixed', '混合重置 mixed', '撤销提交，改动保留在工作区'],
+      ['hard', '硬重置 hard', '撤销提交并丢弃所有改动，无法恢复'],
+    ].map(([id, label, hint]) => {
+      const on = s.resetMode === id;
+      return {
+        label, hint, on, bd: on ? 'var(--accent)' : 'var(--line)', bg: on ? 'var(--raised)' : 'transparent',
+        hintFg: id === 'hard' ? 'var(--del)' : 'var(--muted)', pick: () => set({ resetMode: id }),
+      };
+    });
+    const copyText = (text, msg) => {
+      const done = () => flash(msg, { ctx: null });
+      try { navigator.clipboard.writeText(text).then(done, done); } catch (e) { done(); }
+    };
+    const open = (modal) => () => set({ ctx: null, modal, field: '' });
+    const isHead = s.sel === headId;
+    const item = (label, run, opt) => {
+      const off = !!(opt && opt.off);
+      return {
+        label, key: (opt && opt.key) || '', off, sepDisplay: 'none', btnDisplay: 'flex', linkDisplay: 'none',
+        fg: off ? 'var(--faint)' : (opt && opt.danger) ? 'var(--del)' : 'var(--ink)', cursor: off ? 'default' : 'pointer',
+        run: off ? () => {} : run,
+      };
+    };
+    const sep = { label: '', key: '', off: false, sepDisplay: 'block', btnDisplay: 'none', linkDisplay: 'none', fg: '', cursor: '', run: () => {} };
+    const mergeTo = '合并到 ' + s.current + '…';
+    const commitItems = [
+      item('检出这个提交', open('checkout')),
+      item('新建分支…', open('branch')),
+      item('打标签…', open('tag')),
+      sep,
+      isHead ? item(mergeTo, () => {}, { off: true })
+        : Object.assign(item(mergeTo, () => {}), { btnDisplay: 'none', linkDisplay: 'flex' }),
+      item('Cherry-pick 到 ' + s.current, open('cherry'), { off: isHead }),
+      item('回滚这个提交', open('revert')),
+      item('把 ' + s.current + ' 重置到这里…', open('reset'), { off: isHead, danger: true }),
+      sep,
+      item('复制哈希', () => copyText(cur.short, '已复制哈希'), { key: '⌘C' }),
+      item('复制提交说明', () => copyText(cur.msg, '已复制提交说明')),
+    ];
+    const menuBranch = s.ctx && s.ctx.branch;
+    const onCurrent = menuBranch === s.current;
+    const openBranch = (modal, field) => () => set({ ctx: null, modal, field, target: menuBranch });
+    const branchItems = [
+      item('切换到这个分支', () => flash('已切换到 ' + nameOf(menuBranch), { ctx: null, current: menuBranch, sel: tips[menuBranch], fileIdx: 0 }), { off: onCurrent }),
+      onCurrent ? item(mergeTo, () => {}, { off: true })
+        : Object.assign(item(mergeTo, () => {}), { btnDisplay: 'none', linkDisplay: 'flex' }),
+      sep,
+      item('重命名…', openBranch('renameBranch', nameOf(menuBranch || '')), { off: onCurrent }),
+      item('删除…', openBranch('deleteBranch', ''), { off: onCurrent, danger: true }),
+    ];
+    const REPOS = [
+      { id: 'gitviz', path: '/Users/yuhuipeng/Desktop/pro/gitviz' },
+      { id: 'dotfiles', path: '/Users/yuhuipeng/code/dotfiles' },
+      { id: 'notes', path: '/Users/yuhuipeng/Documents/notes' },
+    ].concat(s.clonedRepos);
+    const repoNow = REPOS.find((r) => r.id === s.repo) || REPOS[0];
+    const repoItems = REPOS.map((r) => item(r.id, () => flash('已打开 ' + r.id, { ctx: null, repo: r.id, net: null }), { key: r.id === s.repo ? '当前' : '' })).concat([
+      sep,
+      item('打开仓库…', () => flash('这里会弹出系统的文件夹选择框', { ctx: null })),
+      item('克隆仓库…', () => set({ ctx: null, modal: 'clone', field: '' })),
+    ]);
+    const ctxItems = s.ctx && s.ctx.repo ? repoItems : menuBranch ? branchItems : commitItems;
+
+    // 网络操作：先显示进度，结束后显示结果或失败原因
+    const NET_MS = 1200;
+    const runNet = (title, detail, then) => {
+      set({ net: { kind: 'progress', title, detail } });
+      setTimeout(then, NET_MS);
+    };
+    const realPull = () => runNet('正在拉取', 'origin/' + s.current, () => {
+      this.setState({ net: null, pushRejected: false });
+      flash('已拉取：合并了 1 个新提交');
+    });
+    const realPush = () => runNet('正在推送', 'origin/' + s.current, () => {
+      const st = this.state;
+      if (st.pushRejected) {
+        this.setState({ net: { kind: 'error', title: '推送被拒绝', detail: '远程有你本地没有的新提交。先拉取，再推送。', fix: 'pull' } });
+      } else {
+        this.setState({ net: null });
+        flash('已推送到 origin/' + st.current);
+      }
+    });
+    // 连接远程前的验证：notes 走 HTTPS，dotfiles 第一次要确认指纹，其余走 SSH 密钥
+    const nextAuth = (st, passed) => {
+      if (st.repo === 'notes') return st.httpsSaved || passed.includes('https') ? null : 'https';
+      if (st.repo === 'dotfiles' && !st.hostTrusted) return 'hostKey';
+      return st.sshUnlocked || passed.includes('ssh') ? null : 'ssh';
+    };
+    const withAuth = (op, patch, passed) => {
+      const next = nextAuth(Object.assign({}, s, patch), passed);
+      if (next) {
+        set(Object.assign({}, patch, { modal: next, field: '', userField: '', authError: '', after: op, remember: true }));
+        return;
+      }
+      set(patch);
+      if (op === 'pull') realPull(); else realPush();
+    };
+    const doPull = () => withAuth('pull', {}, []);
+    const doPush = () => withAuth('push', {}, []);
+    const netActions = s.net && s.net.kind === 'error'
+      ? [
+        s.net.fix === 'pull' ? { label: '先拉取', run: doPull } : { label: '重试', run: doPush },
+        { label: '关闭', run: () => set({ net: null }) },
+      ]
+      : [];
+    const name = s.field.trim();
+    const needName = (base.input && !base.optional && !name) || !!(base.user && !s.userField.trim());
+    const restore = () => {
+      const done = Object.assign({}, s.done);
+      const restored = s.restored.slice();
+      stCur.files.forEach((f) => {
+        delete done[f.name];
+        if (!CH.some((c) => c.name === f.name) && !restored.some((r) => r.name === f.name)) restored.push(f);
+      });
+      return { done, restored };
+    };
+    const applyStash = () => flash('已应用储藏，改动已回到工作区', restore());
+    const popStash = () => flash('已弹出储藏，改动已回到工作区', Object.assign(restore(), {
+      stashes: s.stashes.filter((x) => x !== stCur), stashIdx: 0, stashFile: 0,
+    }));
+    const confirm = () => {
+      if (needName) return;
+      // 输入的密码和令牌只用来演示流程：不保存，也不发送到任何地方
+      const closed = { modal: null, field: '', userField: '', authError: '' };
+      if (s.modal === 'ssh') {
+        withAuth(s.after, Object.assign(closed, { sshUnlocked: s.remember }), ['ssh']);
+        return;
+      }
+      if (s.modal === 'hostKey') {
+        withAuth(s.after, Object.assign(closed, { hostTrusted: true }), []);
+        return;
+      }
+      if (s.modal === 'https') {
+        if (s.authTries === 0) {
+          set({ authTries: 1, field: '', authError: '用户名或令牌不对，或者令牌已过期。检查后重试。' });
+          return;
+        }
+        withAuth(s.after, Object.assign(closed, { authTries: 0, httpsSaved: s.remember }), ['https']);
+        return;
+      }
+      if (s.modal === 'sign') {
+        finishCommit(Object.assign(closed, { signUnlocked: s.remember }));
+        return;
+      }
+      if (s.modal === 'stash') {
+        const live = CH.filter((c) => !s.done[c.name]);
+        const done = Object.assign({}, s.done);
+        live.forEach((c) => { done[c.name] = true; });
+        const entry = {
+          msg: name || 'WIP on ' + s.current, branch: s.current, date: '10-31 23:40',
+          files: live.map((c) => ({ t: c.t === '?' ? 'A' : c.t, name: c.name, dir: c.dir, add: c.add || 6, del: c.del || (c.t === 'M' ? 2 : 0) })),
+        };
+        flash('已储藏 ' + live.length + ' 个文件', { modal: null, stashes: [entry].concat(s.stashes), staged: {}, done, view: 'stash', stashIdx: 0, stashFile: 0 });
+        return;
+      }
+      if (s.modal === 'reset') {
+        flash('已把 ' + s.current + ' 重置到 ' + sh + '（' + s.resetMode + '）', { modal: null });
+        return;
+      }
+      if (s.modal === 'discard') {
+        const staged = Object.assign({}, s.staged);
+        delete staged[s.target];
+        flash('已丢弃 ' + s.target + ' 的改动', { modal: null, staged, done: Object.assign({}, s.done, { [s.target]: true }) });
+        return;
+      }
+      if (s.modal === 'renameBranch') {
+        flash('已重命名为 ' + name, { modal: null, renamed: Object.assign({}, s.renamed, { [s.target]: name }) });
+        return;
+      }
+      if (s.modal === 'deleteBranch') {
+        flash('已删除分支 ' + nameOf(s.target), { modal: null, deleted: Object.assign({}, s.deleted, { [s.target]: true }) });
+        return;
+      }
+      if (s.modal === 'clone') {
+        const id = name.replace(/\.git$/, '').split(/[/:]/).pop() || 'repo';
+        this.setState({ modal: null });
+        runNet('正在克隆', name, () => {
+          this.setState({ net: null, repo: id, clonedRepos: s.clonedRepos.concat([{ id, path: '/Users/yuhuipeng/Desktop/pro/' + id }]) });
+          flash('已克隆 ' + id);
+        });
+        return;
+      }
+      if (s.modal === 'dropStash') {
+        flash('已删除储藏', { modal: null, stashes: s.stashes.filter((x) => x !== stCur), stashIdx: 0, stashFile: 0 });
+        return;
+      }
+      if (s.modal === 'branch') flash('已创建分支 ' + name, { modal: null, extraBranches: s.extraBranches.concat([{ name, id: s.sel }]) });
+      else if (s.modal === 'tag') flash('已创建标签 ' + name, { modal: null, extraTags: s.extraTags.concat([{ name, id: s.sel }]) });
+      else flash({ checkout: '已检出 ', cherry: '已 cherry-pick ', revert: '已回滚 ' }[s.modal] + sh, { modal: null });
+    };
+    const stagedNames = Object.keys(s.staged).filter((k) => s.staged[k] && !s.done[k]);
+    const commitStaged = () => {
+      if (!s.commitMsg.trim() || (!s.amend && !stagedNames.length)) return;
+      if (s.sign && !s.signUnlocked) {
+        set({ modal: 'sign', field: '', authError: '', remember: true });
+        return;
+      }
+      finishCommit({});
+    };
+    const finishCommit = (extra) => {
+      const names = stagedNames;
+      const msg = s.commitMsg.trim();
+      const done = Object.assign({}, s.done);
+      names.forEach((k) => { done[k] = true; });
+      const reset = Object.assign({ staged: {}, done, commitMsg: '', amend: false }, extra);
+      if (s.amend) flash('已修改上一次提交', Object.assign(reset, { amended: Object.assign({}, s.amended, { [headId]: msg }) }));
+      else flash('已提交 ' + names.length + ' 个文件到 ' + s.current, reset);
+    };
+    const headMsg = (rows.find((r) => r.id === headId) || rows[0]).msg;
+    const uni = s.mode === 'unified';
+    return {
+      workspace, sections, tools, rows: shownRows, cur,
+      histDisplay: s.view === 'history' ? 'flex' : 'none', chDisplay: s.view === 'changes' ? 'flex' : 'none',
+      themeClass: 's-' + s.scheme + (dark ? ' t-dark' : ' t-light'),
+      schemeDisplay: 'none', // MVP 先隐藏配色入口，改成 'flex' 就能恢复
+      schemeDots: [['blue', '原生蓝', '#2F6FED'], ['graphite', '石墨橙', '#C2570C'], ['indigo', '黛蓝', '#3A4FA3'], ['violet', '紫藤', '#6D4FC4'], ['pine', '松烟', '#2F6F5B']].map(([id, name, color]) => ({
+        name, color, ring: s.scheme === id ? '0 0 0 2px var(--rail), 0 0 0 3px var(--ink)' : 'none', on: s.scheme === id,
+        pick: () => {
+          try { localStorage.setItem('gitviz-scheme-v2', id); } catch (e) { /* 存不了也能切换 */ }
+          set({ scheme: id });
+        },
+      })),
+      themeLabel: dark ? '切换到浅色主题' : '切换到深色主题',
+      themeIcon: dark
+        ? 'M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10z M12 1v2 M12 21v2 M4.2 4.2l1.4 1.4 M18.4 18.4l1.4 1.4 M1 12h2 M21 12h2 M4.2 19.8l1.4-1.4 M18.4 5.6l1.4-1.4'
+        : 'M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z',
+      toggleTheme: () => {
+        const theme = dark ? 'light' : 'dark';
+        try { localStorage.setItem('gitviz-theme', theme); } catch (e) { /* 存不了也能切换 */ }
+        set({ theme });
+      },
+      ctxDisplay: s.ctx ? 'block' : 'none', ctxX: (s.ctx ? s.ctx.x : 0) + 'px', ctxY: (s.ctx ? s.ctx.y : 0) + 'px',
+      ctxItems, resetModes,
+      closeCtx: (e) => { e.preventDefault(); set({ ctx: null }); },
+      fileTabs: [['diff', '改动'], ['history', '历史'], ['blame', 'Blame']].map(([id, label]) => ({
+        label, on: tab === id, bg: tab === id ? RAISED : 'transparent', fg: tab === id ? INK : 'var(--muted)',
+        pick: () => set({ fileTab: id }),
+      })),
+      diffSegDisplay: tab === 'diff' ? 'flex' : 'none', diffBodyDisplay: tab === 'diff' ? 'block' : 'none',
+      fileHistDisplay: tab === 'history' ? 'block' : 'none', blameDisplay: tab === 'blame' ? 'block' : 'none',
+      fileHist, blameRows,
+      query: s.query, curBranch: s.current,
+      stashDisplay: s.view === 'stash' ? 'flex' : 'none',
+      stashDetailDisplay: s.stashes.length ? 'flex' : 'none', stashEmptyDisplay: s.stashes.length ? 'none' : 'block',
+      stashCount: s.stashes.length, stashRows, stCur, stFiles, stFile, applyStash, popStash,
+      askDropStash: () => set({ modal: 'dropStash', field: '' }),
+      onQuery: (e) => set({ query: e.target.value }),
+      unstaged, stagedList, unstagedCount: unstaged.length, stagedCount: stagedList.length, chFile,
+      modalDisplay: s.modal ? 'flex' : 'none', dlg, field: s.field,
+      onField: (e) => set({ field: e.target.value }), closeModal: () => set({ modal: null, field: '', userField: '', authError: '', authTries: 0 }),
+      userField: s.userField, onUserField: (e) => set({ userField: e.target.value }),
+      remember: s.remember, toggleRemember: () => set({ remember: !s.remember }),
+      authError: s.authError, authErrorDisplay: s.authError ? 'block' : 'none',
+      confirm, okOpacity: needName ? 0.45 : 1,
+      toast: s.toast, toastDisplay: s.toast ? 'flex' : 'none',
+      commitStaged, commitOpacity: s.commitMsg.trim() && (s.amend || stagedList.length) ? 1 : 0.45,
+      commitLabel: s.amend ? '修改上一次提交' : '提交到 ' + s.current + ' · ' + stagedList.length + ' 个文件',
+      amend: s.amend, commitMsg: s.commitMsg, onCommitMsg: (e) => set({ commitMsg: e.target.value }),
+      toggleAmend: () => set({ amend: !s.amend, commitMsg: s.amend ? '' : headMsg }),
+      repoName: repoNow.id, repoPath: repoNow.path,
+      openRepoMenu: () => set({ ctx: { x: 266, y: 44, repo: true } }),
+      netDisplay: s.net ? 'flex' : 'none', netSpin: s.net && s.net.kind === 'progress' ? 'block' : 'none',
+      netBg: s.net && s.net.kind === 'error' ? T.del + '1A' : 'var(--panel)', netFg: s.net && s.net.kind === 'error' ? 'var(--del)' : 'var(--ink)',
+      netTitle: s.net ? s.net.title : '', netDetail: s.net ? s.net.detail : '', netActions,
+      copy: () => { set({ copied: true }); setTimeout(() => this.setState({ copied: false }), 1400); },
+      copyLabel: s.copied ? '已复制' : '复制', copyColor: s.copied ? 'var(--add)' : 'var(--muted)',
+      files: fileList, fileCount: fileList.length,
+      totalAdd: fileList.reduce((a, f) => a + f.add, 0), totalDel: fileList.reduce((a, f) => a + f.del, 0),
+      curFile, uLines: hd.uLines, sLines: hd.sLines, isUnified: uni, isSplit: !uni,
+      setUnified: () => set({ mode: 'unified' }), setSplit: () => set({ mode: 'split' }),
+      unifiedBg: uni ? RAISED : 'transparent', unifiedFg: uni ? INK : 'var(--muted)',
+      splitBg: uni ? 'transparent' : RAISED, splitFg: uni ? 'var(--muted)' : INK,
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -35,12 +35,12 @@ private val Sections = listOf("本地分支" to RefKind.BRANCH, "远程" to RefK
 @Composable
 fun RefSidebar(
     refs: List<RefTarget>,
+    filter: String,
     selectedId: String?,
     isLoaded: (String) -> Boolean,
     onSelect: (RefTarget) -> Unit,
     modifier: Modifier,
 ) {
-    var filter by remember { mutableStateOf("") }
     var collapsed by remember { mutableStateOf(setOf("${RefKind.TAG}:")) } // 标签通常很多，默认收起
     val filtering = filter.isNotBlank()
     val trees = remember(refs, filter) {
@@ -55,60 +55,32 @@ fun RefSidebar(
         collapsed = if (key in collapsed) collapsed - key else collapsed + key
     }
 
-    Column(modifier) {
-        FilterField(filter, onChange = { filter = it })
-        Box(Modifier.fillMaxWidth().weight(1f)) {
-            LazyColumn(Modifier.fillMaxSize().padding(end = 10.dp), state = listState) {
-                Sections.forEachIndexed { index, (title, kind) ->
-                    val (count, tree) = trees[index]
-                    val sectionKey = "$kind:"
-                    val expanded = filtering || sectionKey !in collapsed
-                    item(key = sectionKey) {
-                        SectionHeader(title, count, expanded, onClick = { toggle(sectionKey) })
-                    }
-                    if (expanded) {
-                        // 过滤时全部展开，免得匹配项藏在折叠的文件夹里
-                        val rows = flattenRefTree(tree) { !filtering && sectionKey + it in collapsed }
-                        items(rows, key = { sectionKey + it.node.path }) { row ->
-                            val ref = row.node.ref
-                            if (ref == null) {
-                                val key = sectionKey + row.node.path
-                                FolderRow(row, !filtering && key in collapsed, onClick = { toggle(key) })
-                            } else {
-                                RefLeafRow(row, ref, ref.commitId == selectedId, isLoaded(ref.commitId), onClick = { onSelect(ref) })
-                            }
+    Box(modifier) {
+        LazyColumn(Modifier.fillMaxSize().padding(end = 10.dp), state = listState) {
+            Sections.forEachIndexed { index, (title, kind) ->
+                val (count, tree) = trees[index]
+                val sectionKey = "$kind:"
+                val expanded = filtering || sectionKey !in collapsed
+                item(key = sectionKey) {
+                    SectionHeader(title, count, expanded, onClick = { toggle(sectionKey) })
+                }
+                if (expanded) {
+                    // 过滤时全部展开，免得匹配项藏在折叠的文件夹里
+                    val rows = flattenRefTree(tree) { !filtering && sectionKey + it in collapsed }
+                    items(rows, key = { sectionKey + it.node.path }) { row ->
+                        val ref = row.node.ref
+                        if (ref == null) {
+                            val key = sectionKey + row.node.path
+                            FolderRow(row, !filtering && key in collapsed, onClick = { toggle(key) })
+                        } else {
+                            RefLeafRow(row, ref, ref.commitId == selectedId, isLoaded(ref.commitId), onClick = { onSelect(ref) })
                         }
                     }
                 }
             }
-            VerticalScrollbar(rememberScrollbarAdapter(listState), Modifier.align(Alignment.CenterEnd).fillMaxHeight())
         }
+        VerticalScrollbar(rememberScrollbarAdapter(listState), Modifier.align(Alignment.CenterEnd).fillMaxHeight())
     }
-}
-
-@Composable
-private fun FilterField(value: String, onChange: (String) -> Unit) {
-    val colors = MaterialTheme.colorScheme
-    val interaction = remember { MutableInteractionSource() }
-    val focused by interaction.collectIsFocusedAsState()
-    val shape = RoundedCornerShape(4.dp)
-    BasicTextField(
-        value, onChange, singleLine = true,
-        textStyle = TextStyle(color = colors.onSurface, fontSize = TypeScale.Body, fontFamily = UiFont),
-        cursorBrush = SolidColor(colors.primary),
-        interactionSource = interaction,
-        decorationBox = { field ->
-            Box(
-                Modifier.fillMaxWidth().padding(10.dp)
-                    .background(colors.surface, shape)
-                    .border(1.dp, if (focused) colors.primary else colors.outline, shape)
-                    .padding(horizontal = 8.dp, vertical = 5.dp),
-            ) {
-                if (value.isEmpty()) Text("过滤分支和标签", fontSize = TypeScale.Body, color = Palette.Faint)
-                field()
-            }
-        },
-    )
 }
 
 @Composable
@@ -149,17 +121,13 @@ private fun RefLeafRow(row: RefRow, ref: RefTarget, selected: Boolean, loaded: B
     ) {
         // 当前分支用和分支图一样的站点标记
         Canvas(Modifier.width(14.dp).height(10.dp)) {
-            if (current) {
-                val center = Offset(4.dp.toPx(), size.height / 2)
-                drawCircle(colors.primary, 4.dp.toPx(), center)
-                drawCircle(Palette.Ink, 2.dp.toPx(), center)
-            }
+            if (current) drawCircle(Palette.Accent, 4.dp.toPx(), Offset(4.dp.toPx(), size.height / 2))
         }
         Text(
             row.node.name, fontSize = TypeScale.Body, maxLines = 1, overflow = TextOverflow.Ellipsis,
             fontWeight = if (current) FontWeight.SemiBold else FontWeight.Normal,
             color = when {
-                current -> colors.primary
+                current -> Palette.AccentInk
                 loaded -> colors.onSurface
                 else -> Palette.Faint
             },

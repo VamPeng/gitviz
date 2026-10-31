@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>GitViz 配色方案</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:#FFFFFF}
+a:focus-visible{outline:2px solid #1F56C4;outline-offset:2px}
+</style>
+</helmet>
+<div style="background:#FFFFFF;color:#1C1E23;font:14px/1.5 -apple-system,'PingFang SC','Helvetica Neue',sans-serif">
+  <div style="max-width:1360px;margin:0 auto;box-sizing:border-box;padding:32px 24px 48px;display:flex;flex-direction:column;gap:40px">
+    <div style="display:flex;flex-direction:column;gap:6px">
+      <div style="font-size:26px;font-weight:600">GitViz 配色方案</div>
+      <div style="color:#5A606B;max-width:680px">五套方案都用中性底色，只有选中项和主按钮带主色。左边浅色，右边深色。这个页面目前隐藏，主窗口默认使用石墨橙。</div>
+    </div>
+
+    <sc-for list="{{schemes}}" as="sc" hint-placeholder-count="5">
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px">
+          <span style="width:14px;height:14px;border-radius:50%;background:{{sc.swatch}}"></span>
+          <span style="font-size:18px;font-weight:600">{{sc.name}}</span>
+          <span style="display:{{sc.tagDisplay}};padding:0 8px;border-radius:10px;background:#E8EFFD;color:#1F56C4;font-size:12px;font-weight:600">当前方案</span>
+          <span style="flex:1 1 280px;min-width:0;color:#5A606B;font-size:13px">{{sc.note}}</span>
+          <a href="Main.dc.html" onClick="{{sc.pick}}" style="display:flex;align-items:center;min-height:36px;padding:0 14px;border-radius:6px;border:1px solid #D5D8DE;color:#1C1E23;font-size:13px;text-decoration:none">在主窗口里看</a>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px">
+          <sc-for list="{{sc.modes}}" as="m" hint-placeholder-count="2">
+            <div style="display:flex;height:290px;border-radius:10px;overflow:hidden;border:1px solid {{m.line}};background:{{m.ground}};color:{{m.ink}};font-size:12px">
+              <div style="width:140px;flex:none;padding:12px 8px;box-sizing:border-box;display:flex;flex-direction:column;gap:2px;background:{{m.rail}};border-right:1px solid {{m.line}}">
+                <div style="padding:0 6px 4px;font-size:11px;color:{{m.muted}}">本地分支</div>
+                <div style="padding:3px 6px;border-radius:4px;background:{{m.raised}};color:{{m.accentInk}};font-weight:600">main</div>
+                <div style="padding:3px 6px">split-diff</div>
+                <div style="padding:3px 6px">refresh-selection</div>
+                <div style="padding:8px 6px 4px;font-size:11px;color:{{m.muted}}">远程</div>
+                <div style="padding:3px 6px">origin/main</div>
+              </div>
+              <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+                <div style="flex:none;display:flex;align-items:center;justify-content:space-between;height:40px;padding:0 12px;border-bottom:1px solid {{m.line}};font-weight:600">
+                  gitviz
+                  <span style="padding:3px 10px;border-radius:5px;background:{{m.accent}};color:{{m.onAccent}};font-size:11px;font-weight:600">提交</span>
+                </div>
+                <sc-for list="{{m.rows}}" as="r" hint-placeholder-count="4">
+                  <div style="flex:none;display:flex;align-items:center;gap:8px;height:28px;padding:0 12px;background:{{r.bg}};box-shadow:{{r.bar}}">
+                    <span style="width:9px;height:9px;box-sizing:border-box;flex:none;border-radius:50%;margin-left:{{r.indent}};border:2px solid {{r.lane}};background:{{m.node}}"></span>
+                    <span style="display:{{r.chipDisplay}};padding:0 5px;border-radius:3px;font-size:11px;background:{{r.chipBg}};color:{{r.chipFg}}">{{r.chip}}</span>
+                    <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{r.msg}}</span>
+                    <span style="font-family:Menlo,ui-monospace,monospace;font-size:11px;color:{{m.muted}}">{{r.sha}}</span>
+                  </div>
+                </sc-for>
+                <div style="flex:1;min-height:0;overflow:hidden;padding:8px 0;border-top:1px solid {{m.line}};background:{{m.panel}};font-family:Menlo,ui-monospace,monospace;font-size:11px;line-height:17px">
+                  <div style="padding:0 12px;color:{{m.muted}}">@@ -20,4 +20,4 @@</div>
+                  <div style="padding:0 12px;background:{{m.delBg}};color:{{m.del}}">- val Ground = Color(0xFF16181D)</div>
+                  <div style="padding:0 12px;background:{{m.addBg}};color:{{m.add}}">+ val Ground = Color(0xFF1E2024)</div>
+                  <div style="padding:0 12px;color:{{m.muted}}">  val Ink = Color(0xFFE8EAED)</div>
+                </div>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </sc-for>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1360,"height":1960}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const L = (ground, rail, panel, line, ink, muted, accent, accentInk, onAccent, raised) => ({
+      ground, rail, panel, line, ink, muted, accent, accentInk, onAccent, raised, node: '#FFFFFF',
+      add: '#1A7F4B', del: '#CF222E', addBg: 'rgba(26,127,75,0.12)', delBg: 'rgba(207,34,46,0.10)', lanes: ['#1F6FD6', '#C2570C', '#1A7F4B'],
+    });
+    const D = (ground, rail, panel, line, ink, muted, accent, accentInk, onAccent, raised) => ({
+      ground, rail, panel, line, ink, muted, accent, accentInk, onAccent, raised, node: ink,
+      add: '#3FB950', del: '#F85149', addBg: 'rgba(63,185,80,0.14)', delBg: 'rgba(248,81,73,0.14)', lanes: ['#4DA3FF', '#FF7A59', '#3FB950'],
+    });
+    const SCHEMES = [
+      ['blue', '原生蓝', '最接近 Fork。蓝色不和新增、删除、修改的颜色冲突，看久了最不累。', '#2F6FED', false,
+        L('#FFFFFF', '#F3F4F6', '#FAFAFB', '#E1E3E8', '#1C1E23', '#5A606B', '#2F6FED', '#1F56C4', '#FFFFFF', 'rgba(47,111,237,0.14)'),
+        D('#1E2024', '#17191C', '#1A1C20', '#33363D', '#E8EAED', '#A3A8B2', '#4C8DFF', '#8AB4FF', '#0E1726', 'rgba(76,141,255,0.18)')],
+      ['graphite', '石墨橙', '接近 Sublime Merge。纯灰底配橙色，专业感最强，深色模式最好看。', '#C2570C', true,
+        L('#F7F7F6', '#ECECEA', '#F2F2F0', '#DADAD6', '#1F1F1E', '#5C5C58', '#C2570C', '#A54A0A', '#FFFFFF', 'rgba(194,87,12,0.13)'),
+        D('#232323', '#1B1B1B', '#1F1F1F', '#3A3A3A', '#EAEAE8', '#A8A8A4', '#F08A3C', '#F7AE74', '#241203', 'rgba(240,138,60,0.17)')],
+      ['indigo', '黛蓝', '偏中国传统色的深蓝，比原生蓝沉稳，深色模式带一点夜色。', '#3A4FA3', false,
+        L('#FBFBFD', '#EEF0F6', '#F5F6FA', '#DDE1EC', '#1A1E2C', '#555C70', '#3A4FA3', '#2F4190', '#FFFFFF', 'rgba(58,79,163,0.13)'),
+        D('#1A1D2B', '#141622', '#171926', '#2F3448', '#E7E9F2', '#A5AABD', '#7C8FE8', '#A7B4F2', '#12162B', 'rgba(124,143,232,0.18)')],
+      ['violet', '紫藤', '最有个性的一套。紫色在 git 工具里少见，也不会和语义色冲突。', '#6D4FC4', false,
+        L('#FFFFFF', '#F4F2F8', '#FAF9FC', '#E4E0EC', '#1E1B26', '#5D5870', '#6D4FC4', '#5A3FAE', '#FFFFFF', 'rgba(109,79,196,0.13)'),
+        D('#1F1C26', '#18161E', '#1B1922', '#37323F', '#ECE9F2', '#ABA6B8', '#A48BF0', '#C3B1F7', '#1A1230', 'rgba(164,139,240,0.18)')],
+      ['pine', '松烟', '如果还想要绿色，这是最克制的版本：低饱和的墨绿，底色完全中性。', '#2F6F5B', false,
+        L('#FFFFFF', '#F2F3F1', '#F9FAF8', '#E0E2DD', '#1C1F1C', '#5A605A', '#2F6F5B', '#27604E', '#FFFFFF', 'rgba(47,111,91,0.13)'),
+        D('#1E201E', '#171917', '#1A1C1A', '#343834', '#E8EBE8', '#A5ABA5', '#6FBFA5', '#97D4C0', '#0E211A', 'rgba(111,191,165,0.17)')],
+    ];
+    const SAMPLE = [
+      ['Add ref sidebar, glass window', '39a636e', 0, 'main'],
+      ['Split diff: sync scrolling', 'c7d2e41', 1, 'split-diff'],
+      ["Merge branch 'fix/refresh'", 'b81f9a6', 0, ''],
+      ['Keep selection after refresh', '5e0ac13', 2, ''],
+    ];
+    const mode = (m) => Object.assign({}, m, {
+      rows: SAMPLE.map((r, i) => ({
+        msg: r[0], sha: r[1], lane: m.lanes[r[2]], indent: r[2] * 10 + 'px', chip: r[3],
+        chipDisplay: r[3] ? 'block' : 'none', chipBg: i === 0 ? m.accent : m.raised, chipFg: i === 0 ? m.onAccent : m.accentInk,
+        bg: i === 2 ? m.raised : 'transparent', bar: i === 2 ? 'inset 2px 0 0 ' + m.accent : 'none',
+      })),
+    });
+    return {
+      schemes: SCHEMES.map((c) => ({
+        name: c[1], note: c[2], swatch: c[3], tagDisplay: c[4] ? 'block' : 'none', modes: [mode(c[5]), mode(c[6])],
+        pick: () => { try { localStorage.setItem('gitviz-scheme-v2', c[0]); } catch (e) { /* 存不了就用默认方案 */ } },
+      })),
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -28,6 +28,31 @@ class DiffLinesTest {
     }
 
     @Test
+    fun `line numbers follow the hunk header`() {
+        val lines = parseDiffLines("@@ -10,3 +20,3 @@ fun x\n keep\n-old\n+new\n\\ No newline at end of file\n tail")
+
+        assertEquals(
+            listOf(null to null, 10 to 20, 11 to null, null to 21, null to null, 12 to 22),
+            lines.map { it.oldNo to it.newNo },
+        )
+    }
+
+    @Test
+    fun `split rows pair removals with additions`() {
+        val rows = toSplitRows(parseDiffLines("--- a\n+++ b\n@@ -1,3 +1,2 @@\n-one\n-two\n+uno\n same"))
+
+        assertEquals(
+            listOf(
+                "@@ -1,3 +1,2 @@" to "@@ -1,3 +1,2 @@",
+                "-one" to "+uno",
+                "-two" to null,
+                " same" to " same",
+            ),
+            rows.map { it.left?.text to it.right?.text },
+        )
+    }
+
+    @Test
     fun `diff without hunks is all header`() {
         val kinds = parseDiffLines("diff --git a/x b/x\nBinary files a/x and b/x differ").map { it.kind }
         assertEquals(listOf(DiffLineKind.HEADER, DiffLineKind.HEADER), kinds)

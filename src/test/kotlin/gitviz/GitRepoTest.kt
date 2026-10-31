@@ -62,6 +62,52 @@ class GitRepoTest {
     }
 
     @Test
+    fun `display name comes from the real folder name`() {
+        val viaDot = File(dir, ".")
+        assertEquals(dir.canonicalFile.name, GitRepo.open(viaDot).use { it.displayName })
+    }
+
+    @Test
+    fun `changes count added and removed lines`() {
+        File(dir, "a").writeText("one\ntwo\nthree\n")
+        git.add().addFilepattern("a").call()
+        val base = commit("add a")
+        File(dir, "a").writeText("one\n2\nthree\nfour\n")
+        git.add().addFilepattern("a").call()
+        val edit = commit("edit a")
+
+        GitRepo.open(dir).use { repo ->
+            assertEquals(3 to 0, repo.changes(base.name).single().let { it.additions to it.deletions })
+            assertEquals(2 to 1, repo.changes(edit.name).single().let { it.additions to it.deletions })
+        }
+    }
+
+    @Test
+    fun `file history only has commits that touch the file`() {
+        commit("first a", "a", 1_700_000_000)
+        commit("only b", "b", 1_700_000_100)
+        val last = commit("second a", "a", 1_700_000_200)
+
+        val history = GitRepo.open(dir).use { it.fileHistory(last.name, "a") }
+        assertEquals(listOf("second a", "first a"), history.map { it.shortMessage })
+    }
+
+    @Test
+    fun `blame names the commit that last changed each line`() {
+        File(dir, "a").writeText("keep\nold\n")
+        git.add().addFilepattern("a").call()
+        val first = commit("first", null, 1_700_000_000)
+        File(dir, "a").writeText("keep\nnew\n")
+        git.add().addFilepattern("a").call()
+        val second = commit("second", null, 1_700_000_100)
+
+        val lines = GitRepo.open(dir).use { it.blame(second.name, "a") }
+        assertEquals(listOf("keep", "new"), lines.map { it.text })
+        assertEquals(listOf(first.name, second.name), lines.map { it.commitId })
+        assertEquals(listOf(1, 2), lines.map { it.lineNo })
+    }
+
+    @Test
     fun `limit truncates the history`() {
         repeat(5) { commit("c$it", "a", 1_700_000_000L + it) }
 
