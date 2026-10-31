@@ -253,6 +253,180 @@ class GitCliTest {
         assertTrue("hook said no" in result.output)
     }
 
+    private fun head() = git(work, "rev-parse", "HEAD")
+    private fun branch() = git(work, "symbolic-ref", "--short", "HEAD")
+    private fun commitInfo(id: String, parents: Int = 1) =
+        CommitInfo(id, List(parents) { "p$it" }, "m", "m", "t", "t@t", 0, emptyList())
+
+    @Test
+    fun `branch can be created, switched to and renamed`() {
+        prepare()
+        val cli = GitCli(work)
+
+        assertTrue(cli.createBranch("feature", head()).ok)
+        assertEquals("main", branch())
+        assertTrue(cli.switchTo("feature").ok)
+        assertEquals("feature", branch())
+
+        assertTrue(cli.renameBranch("feature", "renamed").ok)
+        assertEquals("renamed", branch())
+    }
+
+    @Test
+    fun `invalid branch names are refused by git`() {
+        prepare()
+        assertFalse(GitCli(work).createBranch("bad name", head()).ok)
+    }
+
+    @Test
+    fun `merged branch can be deleted but unmerged work is protected`() {
+        prepare()
+        val cli = GitCli(work)
+        cli.createBranch("done", head())
+        assertTrue(cli.deleteBranch("done").ok)
+
+        git(work, "checkout", "-q", "-b", "wip")
+        commit(work, "b", "x\n")
+        git(work, "checkout", "-q", "main")
+        val result = cli.deleteBranch("wip")
+        assertFalse(result.ok)
+        assertTrue("wip" in git(work, "branch"))
+    }
+
+    @Test
+    fun `checkout detaches head at the commit`() {
+        prepare()
+        val first = head()
+        commit(work, "a", "two\n")
+
+        assertTrue(GitCli(work).checkout(first).ok)
+        assertEquals(first, head())
+    }
+
+    @Test
+    fun `tag points at the chosen commit`() {
+        prepare()
+        val first = head()
+        commit(work, "a", "two\n")
+
+        assertTrue(GitCli(work).tag("v1", first).ok)
+        assertEquals(first, git(work, "rev-parse", "v1"))
+    }
+
+    @Test
+    fun `clean merge brings the branch in`() {
+        prepare()
+        git(work, "checkout", "-q", "-b", "side")
+        commit(work, "b", "side\n")
+        git(work, "checkout", "-q", "main")
+        commit(work, "c", "main\n")
+
+        assertTrue(GitCli(work).merge("side").ok)
+        assertTrue(File(work, "b").exists())
+    }
+
+    @Test
+    fun `conflicting merge can be aborted`() {
+        prepare()
+        git(work, "checkout", "-q", "-b", "side")
+        commit(work, "a", "side\n")
+        git(work, "checkout", "-q", "main")
+        commit(work, "a", "main\n")
+        val before = head()
+        val cli = GitCli(work)
+
+        assertEquals(GitFailure.CONFLICT, cli.merge("side").failure)
+        assertTrue(cli.abortOperation().ok)
+        assertEquals(before, head())
+        assertEquals("main\n", File(work, "a").readText())
+    }
+
+    @Test
+    fun `cherry pick copies a commit and a conflict can be aborted`() {
+        prepare()
+        git(work, "checkout", "-q", "-b", "side")
+        commit(work, "b", "side\n")
+        val clean = head()
+        commit(work, "a", "side\n")
+        val conflicting = head()
+        git(work, "checkout", "-q", "main")
+        commit(work, "a", "main\n")
+        val cli = GitCli(work)
+
+        assertTrue(cli.cherryPick(commitInfo(clean)).ok)
+        assertTrue(File(work, "b").exists())
+
+        val before = head()
+        assertEquals(GitFailure.CONFLICT, cli.cherryPick(commitInfo(conflicting)).failure)
+        assertTrue(cli.abortOperation().ok)
+        assertEquals(before, head())
+    }
+
+    @Test
+    fun `revert undoes a commit and handles merge commits`() {
+        prepare()
+        commit(work, "a", "two\n")
+        val cli = GitCli(work)
+        assertTrue(cli.revert(commitInfo(head())).ok)
+        assertEquals("one\n", File(work, "a").readText())
+
+        git(work, "checkout", "-q", "-b", "side")
+        commit(work, "b", "side\n")
+        git(work, "checkout", "-q", "main")
+        git(work, "merge", "-q", "--no-ff", "--no-edit", "side")
+        assertTrue(cli.revert(commitInfo(head(), parents = 2)).ok)
+        assertFalse(File(work, "b").exists())
+    }
+
+    @Test
+    fun `reset modes keep or drop changes as promised`() {
+        prepare()
+        val first = head()
+        commit(work, "a", "two\n")
+        val second = head()
+        val cli = GitCli(work)
+
+        assertTrue(cli.reset(first, ResetMode.SOFT).ok)
+        assertTrue(file("a").hasStaged)
+        assertEquals("two\n", File(work, "a").readText())
+
+        git(work, "reset", "-q", "--hard", second)
+        assertTrue(cli.reset(first, ResetMode.MIXED).ok)
+        assertFalse(file("a").hasStaged)
+        assertTrue(file("a").hasUnstaged)
+
+        git(work, "reset", "-q", "--hard", second)
+        assertTrue(cli.reset(first, ResetMode.HARD).ok)
+        assertEquals("one\n", File(work, "a").readText())
+        assertTrue(cli.status().isEmpty())
+    }
+
+    private fun labels(entries: List<MenuEntry>) = entries.filterIsInstance<MenuItem>()
+
+    private val noActions = GitActions({}, { _, _, _ -> }, {})
+
+    @Test
+    fun `head commit cannot be merged, picked or reset onto itself`() {
+        val items = labels(commitMenu(commitInfo("abcdef0123"), isHead = true, "main", noActions))
+        assertEquals(
+            setOf("合并到 main…", "Cherry-pick 到 main…", "把 main 重置到这里…"),
+            items.filterNot { it.enabled }.map { it.label }.toSet(),
+        )
+        assertTrue(labels(commitMenu(commitInfo("abcdef0123"), isHead = false, "main", noActions)).all { it.enabled })
+    }
+
+    @Test
+    fun `current branch cannot be deleted or renamed from its menu`() {
+        assertTrue(labels(branchMenu("main", isCurrent = true, "main", noActions)).none { it.enabled })
+        assertTrue(labels(branchMenu("side", isCurrent = false, "main", noActions)).all { it.enabled })
+    }
+
+    @Test
+    fun `conflicts offer to give up the operation`() {
+        assertEquals(NetOp.ABORT, describeAction("正在合并", "已合并", GitResult(GitFailure.CONFLICT, "CONFLICT")).next)
+        assertEquals(NetOp.ABORT, describe(NetOp.PULL, GitResult(GitFailure.CONFLICT, "CONFLICT")).next)
+    }
+
     @Test
     fun `rejected push offers pull as the next step`() {
         val status = describe(NetOp.PUSH, GitResult(GitFailure.REJECTED, "! [rejected] main -> main (fetch first)"))

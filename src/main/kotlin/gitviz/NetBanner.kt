@@ -18,7 +18,10 @@ import androidx.compose.ui.unit.dp
 enum class NetOp(val running: String, val done: String) {
     PULL("正在拉取", "已拉取"),
     PUSH("正在推送", "已推送"),
+    ABORT("正在放弃", "已放弃，回到操作之前"),
 }
+
+private const val ConflictHint = "解决冲突的界面还没做。可以放弃回到操作之前，或者在终端解决。"
 
 enum class NetState { RUNNING, DONE, FAILED }
 
@@ -40,8 +43,18 @@ internal fun describe(op: NetOp, result: GitResult): NetStatus {
         GitFailure.AUTH ->
             NetStatus("连不上远程", "验证失败。检查 SSH 密钥和 ssh-agent，或访问令牌。", NetState.FAILED, op, "重试")
         GitFailure.CONFLICT ->
-            NetStatus("拉取时有冲突", "冲突界面还没做。先在终端解决，或运行 git merge --abort 放弃合并。", NetState.FAILED)
+            NetStatus("拉取时有冲突", ConflictHint, NetState.FAILED, NetOp.ABORT, "放弃")
         GitFailure.OTHER -> NetStatus("${op.running.removePrefix("正在")}失败", lastLine, NetState.FAILED, op, "重试")
+    }
+}
+
+/** 分支、合并这些本地操作的结果。running 形如「正在合并」。 */
+internal fun describeAction(running: String, done: String, result: GitResult): NetStatus {
+    val lastLine = result.output.lineSequence().lastOrNull { it.isNotBlank() }.orEmpty()
+    return when (result.failure) {
+        null -> NetStatus(done, "", NetState.DONE)
+        GitFailure.CONFLICT -> NetStatus("有冲突", ConflictHint, NetState.FAILED, NetOp.ABORT, "放弃")
+        else -> NetStatus("${running.removePrefix("正在")}失败", lastLine, NetState.FAILED)
     }
 }
 

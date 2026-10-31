@@ -4,7 +4,9 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.*
@@ -40,6 +42,8 @@ fun RefSidebar(
     isLoaded: (String) -> Boolean,
     onSelect: (RefTarget) -> Unit,
     modifier: Modifier,
+    onBranchOpen: (RefTarget) -> Unit = {},
+    onBranchMenu: (RefTarget) -> Unit = {},
 ) {
     var collapsed by remember { mutableStateOf(setOf("${RefKind.TAG}:")) } // 标签通常很多，默认收起
     val filtering = filter.isNotBlank()
@@ -73,7 +77,11 @@ fun RefSidebar(
                             val key = sectionKey + row.node.path
                             FolderRow(row, !filtering && key in collapsed, onClick = { toggle(key) })
                         } else {
-                            RefLeafRow(row, ref, ref.commitId == selectedId, isLoaded(ref.commitId), onClick = { onSelect(ref) })
+                            RefLeafRow(
+                                    row, ref, ref.commitId == selectedId, isLoaded(ref.commitId), onClick = { onSelect(ref) },
+                                    onOpen = { if (ref.label.kind == RefKind.BRANCH) onBranchOpen(ref) },
+                                    onMenu = { if (ref.label.kind == RefKind.BRANCH) onBranchMenu(ref) },
+                                )
                         }
                     }
                 }
@@ -108,14 +116,24 @@ private fun FolderRow(row: RefRow, collapsed: Boolean, onClick: () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun RefLeafRow(row: RefRow, ref: RefTarget, selected: Boolean, loaded: Boolean, onClick: () -> Unit) {
+private fun RefLeafRow(
+    row: RefRow,
+    ref: RefTarget,
+    selected: Boolean,
+    loaded: Boolean,
+    onClick: () -> Unit,
+    onOpen: () -> Unit,
+    onMenu: () -> Unit,
+) {
     val colors = MaterialTheme.colorScheme
     val current = ref.label.isCurrent
     Row(
         Modifier.fillMaxWidth().height(25.dp)
+            .onRightClick(onMenu)
             .rowHighlight(selected)
-            .clickable(enabled = loaded, onClick = onClick)
+            .combinedClickable(enabled = loaded, onClick = onClick, onDoubleClick = onOpen)
             .indented(row.depth),
         verticalAlignment = Alignment.CenterVertically,
     ) {

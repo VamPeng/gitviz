@@ -5,6 +5,12 @@ import java.util.concurrent.TimeUnit
 
 enum class GitFailure { REJECTED, AUTH, CONFLICT, OTHER }
 
+enum class ResetMode(val flag: String, val label: String, val hint: String) {
+    SOFT("--soft", "软重置", "撤销提交，改动保留在暂存区"),
+    MIXED("--mixed", "混合重置", "撤销提交，改动保留在工作区"),
+    HARD("--hard", "硬重置", "撤销提交并丢弃所有改动，无法恢复"),
+}
+
 /** 一次网络操作的结果。failure 为 null 表示成功，output 是 git 的原始输出。 */
 data class GitResult(val failure: GitFailure?, val output: String) {
     val ok: Boolean get() = failure == null
@@ -36,7 +42,7 @@ internal fun parseStatus(text: String): List<WorkingFile> {
 
 /** 从 git 的输出判断失败原因，界面据此决定显示什么、提供什么操作。 */
 internal fun classifyFailure(output: String): GitFailure = when {
-    "CONFLICT" in output || "Automatic merge failed" in output -> GitFailure.CONFLICT
+    "CONFLICT" in output || "Automatic merge failed" in output || "after resolving the conflicts" in output -> GitFailure.CONFLICT
     "[rejected]" in output || "non-fast-forward" in output || "fetch first" in output -> GitFailure.REJECTED
     listOf(
         "Permission denied", "Authentication failed", "could not read Username", "could not read Password",
@@ -90,6 +96,42 @@ class GitCli(private val workTree: File) {
         if (amend) run("commit", "--amend", "-m", message) else run("commit", "-m", message)
 
     fun lastCommitMessage(): String = capture("log", "-1", "--format=%B").orEmpty()
+
+    fun createBranch(name: String, commitId: String): GitResult = run("branch", name, commitId)
+
+    fun switchTo(branch: String): GitResult = run("switch", branch)
+
+    /** 检出某个提交，进入分离 HEAD。 */
+    fun checkout(commitId: String): GitResult = run("switch", "--detach", commitId)
+
+    fun renameBranch(from: String, to: String): GitResult = run("branch", "-m", from, to)
+
+    /** 只删已合并的分支；没合并的 git 会拒绝，提交不会丢。 */
+    fun deleteBranch(name: String): GitResult = run("branch", "-d", name)
+
+    fun tag(name: String, commitId: String): GitResult = run("tag", name, commitId)
+
+    fun merge(ref: String): GitResult = run("merge", "--no-edit", ref)
+
+    fun cherryPick(commit: CommitInfo): GitResult = run("cherry-pick", *mainlineFor(commit), commit.id)
+
+    fun revert(commit: CommitInfo): GitResult = run("revert", "--no-edit", *mainlineFor(commit), commit.id)
+
+    /** 合并提交有两个父提交，要指明相对哪一个，这里取第一个。 */
+    private fun mainlineFor(commit: CommitInfo) = if (commit.parents.size > 1) arrayOf("-m", "1") else emptyArray()
+
+    fun reset(commitId: String, mode: ResetMode): GitResult = run("reset", mode.flag, commitId)
+
+    /** 放弃进行到一半的合并、cherry-pick 或回滚，回到操作之前。 */
+    fun abortOperation(): GitResult {
+        val gitDir = workTree.resolve(capture("rev-parse", "--git-dir") ?: ".git")
+        return when {
+            gitDir.resolve("MERGE_HEAD").exists() -> run("merge", "--abort")
+            gitDir.resolve("CHERRY_PICK_HEAD").exists() -> run("cherry-pick", "--abort")
+            gitDir.resolve("REVERT_HEAD").exists() -> run("revert", "--abort")
+            else -> GitResult(GitFailure.OTHER, "没有进行中的操作")
+        }
+    }
 
     private fun hasCommits(): Boolean = capture("rev-parse", "-q", "--verify", "HEAD") != null
 

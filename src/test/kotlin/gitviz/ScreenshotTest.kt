@@ -38,7 +38,7 @@ class ScreenshotTest {
                         }
                         VerticalDivider()
                         Column(Modifier.weight(1f).fillMaxHeight()) {
-                            Toolbar(state, false, 18.dp, "", {}, {}, {}, netBusy = false, onPull = {}, onPush = {})
+                            Toolbar(state, false, 18.dp, "", {}, {}, {}, netBusy = false, onPull = {}, onPush = {}, onNewBranch = {})
                             HorizontalDivider()
                             CommitList(state, result.commits.indices.toList(), selected, rememberLazyListState(), { selected = it },
                                 Modifier.fillMaxWidth().weight(0.46f))
@@ -86,6 +86,28 @@ class ScreenshotTest {
         out.writeBytes(image.encodeToData(EncodedImageFormat.PNG)!!.bytes)
         scene.close()
         assertTrue(files.isNotEmpty())
+    }
+
+    private fun renderPopup(name: String, content: @Composable () -> Unit) {
+        val scene = ImageComposeScene(520 * 2, 460 * 2, Density(2f)) {
+            GitVizTheme {
+                Surface(Modifier.fillMaxSize(), color = Palette.Ground, contentColor = Palette.Ink) { content() }
+            }
+        }
+        scene.render(0)
+        val image = scene.render(500_000_000L)
+        val out = File("build/screens/$name.png").apply { parentFile.mkdirs() }
+        out.writeBytes(image.encodeToData(EncodedImageFormat.PNG)!!.bytes)
+        scene.close()
+        assertTrue(out.length() > 0)
+    }
+
+    @Test
+    fun `menus and dialogs render`() {
+        val commit = CommitInfo("abcdef0123", emptyList(), "m", "m", "t", "t@t", 0, emptyList())
+        val actions = GitActions({}, { _, _, _ -> }, {})
+        renderPopup("menu") { GitMenuPopup(commitMenu(commit, isHead = false, "main", actions)) {} }
+        renderPopup("reset") { ActionDialog(DialogSpec("重置 main", "把 main 移到 abcdef0。", "重置", danger = true, modes = true) { _, _ -> }) {} }
     }
 
     @Test

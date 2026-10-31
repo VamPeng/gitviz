@@ -42,6 +42,7 @@ internal fun CommitList(
     listState: LazyListState,
     onSelect: (CommitInfo) -> Unit,
     modifier: Modifier,
+    onMenu: (CommitInfo) -> Unit = {},
 ) {
     val lanesShown = remember(state) {
         (state.rows.maxOfOrNull { it.width } ?: 1).coerceIn(1, MAX_VISIBLE_LANES)
@@ -53,7 +54,7 @@ internal fun CommitList(
             LazyColumn(Modifier.fillMaxSize().padding(end = 10.dp), state = listState) {
                 items(shown, key = { state.result.commits[it].id }) { index ->
                     val c = state.result.commits[index]
-                    CommitRow(c, state.rows[index], lanesShown, c.id == state.headId, c.id == selected?.id, onSelect)
+                    CommitRow(c, state.rows[index], lanesShown, c.id == state.headId, c.id == selected?.id, onSelect, onMenu)
                 }
             }
             VerticalScrollbar(rememberScrollbarAdapter(listState), Modifier.align(Alignment.CenterEnd).fillMaxHeight())
@@ -87,9 +88,11 @@ private fun CommitRow(
     isHead: Boolean,
     isSelected: Boolean,
     onSelect: (CommitInfo) -> Unit,
+    onMenu: (CommitInfo) -> Unit,
 ) {
     Row(
         Modifier.fillMaxWidth().height(28.dp)
+            .onRightClick { onMenu(c) }
             .hoverRow()
             .rowHighlight(isSelected)
             .clickable { onSelect(c) }

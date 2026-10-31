@@ -16,6 +16,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -81,6 +83,8 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
     var query by remember { mutableStateOf("") }
     var net by remember { mutableStateOf<NetStatus?>(null) }
     var showChanges by remember { mutableStateOf(false) }
+    var menu by remember { mutableStateOf<List<MenuEntry>?>(null) }
+    var dialog by remember { mutableStateOf<DialogSpec?>(null) }
     var working by remember { mutableStateOf(emptyList<WorkingFile>()) }
     val commitListState = rememberLazyListState()
 
@@ -116,7 +120,9 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
 
     val chooseAndOpen = { chooseDirectory()?.let { open(it) }; Unit }
     val s = state
-    val cli = remember(s?.repo) { s?.repo?.workTree?.let(::GitCli) }
+    val workTree = s?.repo?.workTree
+    val cli = remember(workTree) { workTree?.let(::GitCli) } // 刷新时不换对象，正在写的提交说明才不会丢
+    val clipboard = LocalClipboardManager.current
 
     suspend fun reloadWorking() {
         working = cli?.let { withContext(Dispatchers.IO) { it.status() } }.orEmpty()
@@ -130,20 +136,42 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
         }
     }
 
-    fun runNet(op: NetOp) {
-        val workTree = s?.repo?.workTree ?: return
+    fun runOp(running: NetStatus, finish: (GitResult) -> NetStatus, op: GitCli.() -> GitResult) {
+        val git = cli ?: return
+        val dir = workTree ?: return
         scope.launch {
-            net = NetStatus(op.running, "origin", NetState.RUNNING)
-            val cli = GitCli(workTree)
-            val result = withContext(Dispatchers.IO) { if (op == NetOp.PUSH) cli.push() else cli.pull() }
-            net = describe(op, result)
-            open(workTree)
+            net = running
+            val result = withContext(Dispatchers.IO) { git.op() }
+            val outcome = finish(result)
+            net = outcome
+            open(dir)
+            reloadWorking()
             if (result.ok) {
                 delay(2500)
-                net = null
+                if (net === outcome) net = null
             }
         }
     }
+
+    fun runNet(op: NetOp) {
+        val detail = if (op == NetOp.ABORT) "" else "origin"
+        runOp(NetStatus(op.running, detail, NetState.RUNNING), { describe(op, it) }) {
+            when (op) {
+                NetOp.PUSH -> push()
+                NetOp.PULL -> pull()
+                NetOp.ABORT -> abortOperation()
+            }
+        }
+    }
+
+    val actions = GitActions(
+        ask = { dialog = it },
+        run = { running, done, op ->
+            runOp(NetStatus(running, "", NetState.RUNNING), { describeAction(running, done, it) }, op)
+        },
+        copy = { clipboard.setText(AnnotatedString(it)) },
+    )
+    val currentBranch = s?.result?.refs?.firstOrNull { it.label.kind == RefKind.BRANCH && it.label.isCurrent }?.label?.name
     val shown = remember(s, query) { s?.let { filterCommits(it.result.commits, query) }.orEmpty() }
 
     fun selectCommit(index: Int) {
@@ -170,6 +198,14 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                         showChanges = false
                         s.indexById[ref.commitId]?.let(::selectCommit)
                     },
+                    onBranchOpen = { ref ->
+                        if (cli != null && !ref.label.isCurrent) {
+                            actions.run("正在切换", "已切换到 ${ref.label.name}") { switchTo(ref.label.name) }
+                        }
+                    },
+                    onBranchMenu = { ref ->
+                        if (cli != null) menu = branchMenu(ref.label.name, ref.label.isCurrent, currentBranch, actions)
+                    },
                     modifier = Modifier.fillMaxWidth().weight(1f),
                 )
                 HorizontalDivider()
@@ -189,6 +225,7 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                     netBusy = net?.state == NetState.RUNNING,
                     onPull = { runNet(NetOp.PULL) },
                     onPush = { runNet(NetOp.PUSH) },
+                    onNewBranch = { selected?.let { askNewBranch(it, actions) } },
                 )
             }
             HorizontalDivider()
@@ -213,7 +250,14 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                         modifier = Modifier.fillMaxWidth().weight(1f),
                     )
                 } else {
-                    CommitList(s, shown, selected, commitListState, onSelect = { selected = it }, Modifier.fillMaxWidth().weight(0.46f))
+                    CommitList(
+                        s, shown, selected, commitListState, onSelect = { selected = it },
+                        Modifier.fillMaxWidth().weight(0.46f),
+                        onMenu = { c ->
+                            selected = c
+                            if (cli != null) menu = commitMenu(c, c.id == s.headId, currentBranch, actions)
+                        },
+                    )
                     HorizontalDivider()
                     CommitDetail(
                         s.repo, selected,
@@ -226,6 +270,8 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
             }
         }
     }
+    menu?.let { GitMenuPopup(it, onDismiss = { menu = null }) }
+    dialog?.let { ActionDialog(it, onDismiss = { dialog = null }) }
 }
 
 /** 搜索说明、作者、哈希和引用名，返回匹配提交在完整列表里的下标。 */
@@ -293,6 +339,7 @@ internal fun Toolbar(
     netBusy: Boolean,
     onPull: () -> Unit,
     onPush: () -> Unit,
+    onNewBranch: () -> Unit,
 ) {
     Row(
         Modifier.fillMaxWidth().height(TitleBarHeight).padding(start = start, end = 14.dp),
@@ -315,8 +362,7 @@ internal fun Toolbar(
                 val canSync = !loading && !netBusy && state.repo.workTree != null
                 ToolButton("拉取", Icons.Pull, enabled = canSync, onClick = onPull)
                 ToolButton("推送", Icons.Push, enabled = canSync, onClick = onPush)
-                // 其余写操作还没接上
-                ToolButton("新建分支", Icons.Branch, enabled = false) {}
+                ToolButton("新建分支", Icons.Branch, enabled = canSync, onClick = onNewBranch)
                 ToolButton("储藏", Icons.Stash, enabled = false) {}
             }
             SearchField(query, onQuery)
