@@ -14,7 +14,7 @@ Kotlin + Compose Desktop + JGit 写的 git 可视化客户端，还在开发中�
 - 储藏：新建（包括未跟踪的文件）、查看、应用、弹出、删除
 - 右键提交：检出、新建分支、打标签、合并、Cherry-pick、回滚、重置、复制
 - 右键分支：切换、合并、重命名、删除；双击分支切换
-- 合并或 Cherry-pick 有冲突时可以放弃，回到操作之前（解决冲突的界面还没做）
+- 解决冲突：合并、Cherry-pick、回滚出现冲突时自动打开，按块选择保留哪一边，也可以放弃回到操作之前
 - 默认加载最近 5000 个提交（`GitRepo.MAX_COMMITS`）
 
 ## 运行
@@ -53,6 +53,7 @@ Kotlin + Compose Desktop + JGit 写的 git 可视化客户端，还在开发中�
 | `GitCli.kt` | 调用系统 git 执行所有写操作 |
 | `ChangesView.kt` | 本地改动和提交说明 |
 | `StashView.kt` | 储藏列表和内容 |
+| `Conflicts.kt`、`ConflictView.kt` | 解析冲突标记、解决冲突的界面 |
 | `GitMenus.kt` | 提交和分支的右键菜单、确认对话框 |
 | `NetBanner.kt` | 拉取、推送的进度和失败提示 |
 | `Main.kt` | 窗口、工具栏、状态栏 |

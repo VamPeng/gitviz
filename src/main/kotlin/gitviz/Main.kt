@@ -64,7 +64,7 @@ fun main(args: Array<String>) {
     }
 }
 
-private enum class MainView { HISTORY, CHANGES, STASH }
+private enum class MainView { HISTORY, CHANGES, STASH, CONFLICT }
 
 internal class RepoState(
     val repo: GitRepo,
@@ -86,6 +86,7 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
     var net by remember { mutableStateOf<NetStatus?>(null) }
     var view by remember { mutableStateOf(MainView.HISTORY) }
     var stashes by remember { mutableStateOf(emptyList<StashEntry>()) }
+    var operation by remember { mutableStateOf<GitOperation?>(null) }
     var menu by remember { mutableStateOf<List<MenuEntry>?>(null) }
     var dialog by remember { mutableStateOf<DialogSpec?>(null) }
     var working by remember { mutableStateOf(emptyList<WorkingFile>()) }
@@ -131,6 +132,7 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
         val git = cli
         working = git?.let { withContext(Dispatchers.IO) { it.status() } }.orEmpty()
         stashes = git?.let { withContext(Dispatchers.IO) { it.stashList() } }.orEmpty()
+        operation = git?.let { withContext(Dispatchers.IO) { it.currentOperation() } }
     }
 
     // 文件可能在别的编辑器里改，定时读一次工作区状态
@@ -139,6 +141,14 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
             reloadWorking()
             delay(3000)
         }
+    }
+
+    val conflicted = remember(working) { working.filter { it.conflicted } }
+    val inConflict = conflicted.isNotEmpty() || operation != null
+
+    // 出现冲突时直接带到解决页面，处理完回到历史
+    LaunchedEffect(inConflict) {
+        if (inConflict) view = MainView.CONFLICT else if (view == MainView.CONFLICT) view = MainView.HISTORY
     }
 
     fun runOp(running: NetStatus, finish: (GitResult) -> NetStatus, op: GitCli.() -> GitResult) {
@@ -192,7 +202,10 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
             Column(Modifier.width(248.dp).fillMaxHeight().background(Palette.Rail)) {
                 if (isMac) WindowDraggableArea { Spacer(Modifier.fillMaxWidth().height(TitleBarHeight)) }
                 Column(Modifier.padding(horizontal = 6.dp).padding(bottom = 6.dp), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                    WorkspaceItem("本地改动", Icons.Edit, view == MainView.CHANGES, working.size) { view = MainView.CHANGES }
+                    if (inConflict) {
+                        WorkspaceItem("解决冲突", Icons.Branch, view == MainView.CONFLICT, conflicted.size) { view = MainView.CONFLICT }
+                    }
+                    WorkspaceItem("本地改动", Icons.Edit, view == MainView.CHANGES, working.size - conflicted.size) { view = MainView.CHANGES }
                     WorkspaceItem("所有提交", Icons.History, view == MainView.HISTORY, 0) { view = MainView.HISTORY }
                     WorkspaceItem("储藏", Icons.Stash, view == MainView.STASH, stashes.size) { view = MainView.STASH }
                 }
@@ -250,11 +263,20 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
             if (s == null) {
                 Welcome(loading, chooseAndOpen)
             } else {
-                if (view == MainView.STASH && cli != null) {
+                if (view == MainView.CONFLICT && cli != null) {
+                    ConflictView(
+                        cli, conflicted, operation,
+                        onAbort = { runNet(NetOp.ABORT) },
+                        onFinish = { actions.run("正在完成", "已完成") { continueOperation() } },
+                        onChanged = { scope.launch { reloadWorking() } },
+                        onFailure = { title, detail -> net = NetStatus(title, detail, NetState.FAILED) },
+                        modifier = Modifier.fillMaxWidth().weight(1f),
+                    )
+                } else if (view == MainView.STASH && cli != null) {
                     StashView(cli, stashes, actions, Modifier.fillMaxWidth().weight(1f))
                 } else if (view == MainView.CHANGES && cli != null) {
                     ChangesView(
-                        cli, working, s.result.currentBranch,
+                        cli, working.filterNot { it.conflicted }, s.result.currentBranch,
                         onChanged = { historyChanged ->
                             scope.launch { reloadWorking() }
                             if (historyChanged) s.repo.workTree?.let { open(it) }

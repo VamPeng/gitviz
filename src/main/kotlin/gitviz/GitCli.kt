@@ -21,7 +21,13 @@ data class WorkingFile(val path: String, val oldPath: String?, val index: Char, 
     val untracked: Boolean get() = index == '?'
     val hasStaged: Boolean get() = index != ' ' && index != '?'
     val hasUnstaged: Boolean get() = worktree != ' '
+
+    /** 还没解决的冲突：UU、AA、DD，以及一边删除一边修改的 AU、UA、DU、UD。 */
+    val conflicted: Boolean get() = index == 'U' || worktree == 'U' || (index == worktree && (index == 'A' || index == 'D'))
 }
+
+/** 进行到一半、等待解决冲突的操作。 */
+enum class GitOperation(val label: String) { MERGE("合并"), CHERRY_PICK("Cherry-pick"), REVERT("回滚") }
 
 /** 一条储藏。ref 是 stash@{n}，序号会随增删变化，id 才是它不变的身份。 */
 data class StashEntry(val ref: String, val id: String, val message: String, val branch: String, val timeSeconds: Long)
@@ -197,14 +203,49 @@ class GitCli(private val workTree: File) {
 
     private fun hasUntracked(entry: StashEntry) = capture("rev-parse", "-q", "--verify", "${entry.id}^3") != null
 
-    /** 放弃进行到一半的合并、cherry-pick 或回滚，回到操作之前。 */
-    fun abortOperation(): GitResult {
+    fun currentOperation(): GitOperation? {
         val gitDir = workTree.resolve(capture("rev-parse", "--git-dir") ?: ".git")
         return when {
-            gitDir.resolve("MERGE_HEAD").exists() -> run("merge", "--abort")
-            gitDir.resolve("CHERRY_PICK_HEAD").exists() -> run("cherry-pick", "--abort")
-            gitDir.resolve("REVERT_HEAD").exists() -> run("revert", "--abort")
-            else -> GitResult(GitFailure.OTHER, "没有进行中的操作")
+            gitDir.resolve("MERGE_HEAD").exists() -> GitOperation.MERGE
+            gitDir.resolve("CHERRY_PICK_HEAD").exists() -> GitOperation.CHERRY_PICK
+            gitDir.resolve("REVERT_HEAD").exists() -> GitOperation.REVERT
+            else -> null
+        }
+    }
+
+    /** 放弃进行到一半的合并、cherry-pick 或回滚，回到操作之前。 */
+    fun abortOperation(): GitResult = when (currentOperation()) {
+        GitOperation.MERGE -> run("merge", "--abort")
+        GitOperation.CHERRY_PICK -> run("cherry-pick", "--abort")
+        GitOperation.REVERT -> run("revert", "--abort")
+        null -> GitResult(GitFailure.OTHER, "没有进行中的操作")
+    }
+
+    /** 冲突都解决后完成操作。提交说明用 git 准备好的，不打开编辑器。 */
+    fun continueOperation(): GitResult = when (currentOperation()) {
+        GitOperation.MERGE -> run("commit", "--no-edit")
+        GitOperation.CHERRY_PICK -> run("-c", "core.editor=true", "cherry-pick", "--continue")
+        GitOperation.REVERT -> run("-c", "core.editor=true", "revert", "--continue")
+        null -> GitResult(GitFailure.OTHER, "没有进行中的操作")
+    }
+
+    /** 工作区里的文件内容，用来解析冲突标记。文件不存在时（一边删除了）返回 null。 */
+    fun readWorkingFile(path: String): String? = workTree.resolve(path).takeIf { it.isFile }?.readText()
+
+    /** 写入解决后的内容，并标记这个文件已解决。 */
+    fun resolveFile(path: String, content: String): GitResult {
+        workTree.resolve(path).writeText(content)
+        return run("add", "--", literal(path))
+    }
+
+    /** 整个文件用某一边的版本。那一边已经删除这个文件时，就删除它。 */
+    fun resolveWhole(path: String, ours: Boolean): GitResult {
+        val stage = if (ours) 2 else 3
+        return if (capture("rev-parse", "-q", "--verify", ":$stage:$path") != null) {
+            val checkedOut = run("checkout", if (ours) "--ours" else "--theirs", "--", literal(path))
+            if (checkedOut.ok) run("add", "--", literal(path)) else checkedOut
+        } else {
+            run("rm", "-q", "--", literal(path))
         }
     }
 

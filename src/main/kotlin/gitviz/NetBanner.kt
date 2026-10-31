@@ -21,7 +21,7 @@ enum class NetOp(val running: String, val done: String) {
     ABORT("正在放弃", "已放弃，回到操作之前"),
 }
 
-private const val ConflictHint = "解决冲突的界面还没做。可以放弃回到操作之前，或者在终端解决。"
+private const val ConflictHint = "到「解决冲突」里处理，或者放弃回到操作之前。"
 
 enum class NetState { RUNNING, DONE, FAILED }
 
