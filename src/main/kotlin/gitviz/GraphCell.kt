@@ -14,14 +14,14 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 val LaneColors = listOf(
-    Color(0xFF4FC3F7), Color(0xFFFFB74D), Color(0xFF81C784), Color(0xFFE57373),
-    Color(0xFFBA68C8), Color(0xFFFFF176), Color(0xFF4DB6AC), Color(0xFFF06292),
+    Color(0xFF4DA3FF), Color(0xFFFF7A59), Color(0xFF3DD68C), Color(0xFFE66CC8),
+    Color(0xFFFFD23F), Color(0xFF2FD4D4), Color(0xFFA78BFA), Color(0xFFFF9F45),
 )
 
 fun laneColor(lane: Int) = LaneColors[lane % LaneColors.size]
 
 val LaneWidth: Dp = 14.dp
-const val MAX_VISIBLE_LANES = 24
+const val MAX_VISIBLE_LANES = 10
 
 @Composable
 fun GraphCell(row: GraphRow, lanesShown: Int, isHeadCommit: Boolean, modifier: Modifier = Modifier) {
@@ -29,7 +29,7 @@ fun GraphCell(row: GraphRow, lanesShown: Int, isHeadCommit: Boolean, modifier: M
         val w = LaneWidth.toPx()
         val h = size.height
         val mid = h / 2
-        val stroke = 2.dp.toPx()
+        val stroke = 3.dp.toPx()
         fun x(lane: Int) = w * lane + w / 2
 
         for (lane in row.passThrough) {
@@ -47,9 +47,11 @@ fun GraphCell(row: GraphRow, lanesShown: Int, isHeadCommit: Boolean, modifier: M
 
         if (row.node < lanesShown) {
             val center = Offset(x(row.node), mid)
-            val r = 4.5.dp.toPx()
+            // 提交是站点；HEAD 是更大的换乘站
+            val r = (if (isHeadCommit) 6.5.dp else 4.5.dp).toPx()
             drawCircle(laneColor(row.node), r, center)
-            if (isHeadCommit) drawCircle(Color.White, r + 2.5.dp.toPx(), center, style = Stroke(1.5.dp.toPx()))
+            drawCircle(Palette.Ink, r - 2.dp.toPx(), center)
+            if (isHeadCommit) drawCircle(Palette.Rail, 1.5.dp.toPx(), center)
         }
     }
 }

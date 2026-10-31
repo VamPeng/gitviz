@@ -17,6 +17,7 @@ dependencies {
     implementation("org.eclipse.jgit:org.eclipse.jgit:7.3.0.202506031305-r")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.10.2")
     implementation("org.slf4j:slf4j-nop:2.0.17")
+    implementation("net.java.dev.jna:jna:5.17.0")
 
     testImplementation(kotlin("test"))
 }
@@ -28,7 +29,7 @@ tasks.test {
 compose.desktop {
     application {
         mainClass = "gitviz.MainKt"
-        jvmArgs += listOf("-Xmx1g", "-XX:+UseSerialGC")
+        jvmArgs += listOf("-Xmx1g", "-XX:+UseSerialGC", "--add-opens=java.desktop/java.awt=ALL-UNNAMED")
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             modules("java.instrument", "java.management", "java.security.jgss", "java.sql", "jdk.unsupported")

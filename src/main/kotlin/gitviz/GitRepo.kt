@@ -19,6 +19,9 @@ enum class RefKind { HEAD, BRANCH, REMOTE, TAG }
 
 data class RefLabel(val name: String, val kind: RefKind, val isCurrent: Boolean = false)
 
+/** 一个引用和它指向的提交。指向的提交不一定在已加载的范围内。 */
+data class RefTarget(val label: RefLabel, val commitId: String)
+
 data class CommitInfo(
     val id: String,
     val parents: List<String>,
@@ -50,6 +53,7 @@ data class LoadResult(
     val commits: List<CommitInfo>,
     val truncated: Boolean,
     val currentBranch: String?,
+    val refs: List<RefTarget>,
 )
 
 /** 只读访问一个本地仓库。所有方法都会阻塞，请在 IO 线程调用。 */
@@ -81,7 +85,10 @@ class GitRepo private constructor(val repository: Repository) : AutoCloseable {
                 result += c.toInfo(labels[c.name].orEmpty())
             }
         }
-        return LoadResult(GraphLayout.topoSort(result), truncated, repository.branch)
+        val refs = labels.flatMap { (id, list) ->
+            list.filter { it.kind != RefKind.HEAD }.map { RefTarget(it, id) }
+        }
+        return LoadResult(GraphLayout.topoSort(result), truncated, repository.branch, refs)
     }
 
     fun changes(commitId: String): List<FileChange> {

@@ -4,8 +4,9 @@ Kotlin + Compose Desktop + JGit 写的 git 可视化客户端，目前是第一�
 
 ## 功能
 - 打开本地仓库（启动目录是仓库会自动打开，也可以点「打开仓库」选择）
+- 左侧引用树：本地分支、远程、标签，可过滤，点击跳到对应提交
 - 带分支图的提交历史：分支、远程分支、标签、HEAD 标记
-- 点提交查看改动文件，点文件查看 diff
+- 下方详情：点提交查看改动文件，点文件查看 diff（目前只有「复制哈希」可用，写操作是占位）
 - 默认加载最近 5000 个提交（`GitRepo.MAX_COMMITS`）
 
 ## 运行
@@ -28,6 +29,8 @@ Kotlin + Compose Desktop + JGit 写的 git 可视化客户端，目前是第一�
 | `GraphLayout.kt` | 分支图布局：给每个提交分配列，算出线怎么连 |
 | `DiffLines.kt` | 给 diff 逐行分类（文件头、增、删、上下文） |
 | `GraphCell.kt` | 画每一行的分支图 |
-| `Main.kt` | 窗口和界面 |
+| `RefTree.kt` | 把引用名按 `/` 拆成树 |
+| `Sidebar.kt` | 左侧引用树面板 |
+| `Main.kt` | 窗口、提交列表和详情面板 |
 
 git 层和界面层是分开的，以后换界面框架也能保留 `GitRepo` 和 `GraphLayout`。
