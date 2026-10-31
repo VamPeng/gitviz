@@ -56,7 +56,7 @@ internal fun CommitDetail(repo: GitRepo, commit: CommitInfo?, onOpenCommit: (Str
     var changes by remember(repo, commit.id) { mutableStateOf<Result<List<FileChange>>?>(null) }
     var selectedFile by remember(repo, commit.id) { mutableStateOf<FileChange?>(null) }
     var tab by remember { mutableStateOf(FileTab.Diff) }
-    var mode by remember { mutableStateOf(DiffMode.Unified) }
+    var mode by remember { mutableStateOf(Settings.defaultDiffMode) }
 
     LaunchedEffect(repo, commit.id) {
         val result = withContext(Dispatchers.IO) { runCatching { repo.changes(commit.id) } }

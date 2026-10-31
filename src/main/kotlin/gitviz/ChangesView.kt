@@ -43,7 +43,7 @@ internal fun ChangesView(
 ) {
     val scope = rememberCoroutineScope()
     var selection by remember(cli) { mutableStateOf<Selection?>(null) }
-    var mode by remember { mutableStateOf(DiffMode.Unified) }
+    var mode by remember { mutableStateOf(Settings.defaultDiffMode) }
     var toDiscard by remember { mutableStateOf<WorkingFile?>(null) }
     var revision by remember { mutableStateOf(0) }
 

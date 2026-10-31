@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.window.rememberCursorPositionProvider
+import java.io.File
 
 sealed interface MenuEntry
 
@@ -127,6 +128,18 @@ internal fun branchMenu(name: String, isCurrent: Boolean, target: String?, a: Gi
         })
     },
 )
+
+internal fun repoMenu(
+    current: String?,
+    recent: List<String>,
+    onOpen: (String) -> Unit,
+    onBrowse: () -> Unit,
+    onClone: () -> Unit,
+): List<MenuEntry> {
+    val repos: List<MenuEntry> = recent.map { path -> MenuItem(File(path).name, enabled = path != current) { onOpen(path) } }
+    return repos + (if (repos.isEmpty()) emptyList() else listOf(MenuSeparator)) +
+        listOf(MenuItem("打开仓库…", action = onBrowse), MenuItem("克隆仓库…", action = onClone))
+}
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable

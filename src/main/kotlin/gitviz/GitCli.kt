@@ -98,10 +98,15 @@ class GitCli(private val workTree: File) {
         val branch = capture("symbolic-ref", "--short", "-q", "HEAD")
             ?: return GitResult(GitFailure.OTHER, "现在不在任何分支上，无法推送")
         val hasUpstream = capture("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}") != null
-        return if (hasUpstream) run("push") else run("push", "-u", "origin", branch)
+        return if (hasUpstream) network("push") else network("push", "-u", "origin", branch)
     }
 
-    fun pull(): GitResult = run("pull", "--no-rebase", "--no-edit")
+    fun pull(): GitResult = network("pull", "--no-rebase", "--no-edit")
+
+    /** 把 url 克隆到当前目录下的 folder。 */
+    fun clone(url: String, folder: String): GitResult = network("clone", "--", url, folder)
+
+    fun config(key: String): String? = capture("config", "--get", key)
 
     fun status(): List<WorkingFile> {
         val (exit, output) = exec(listOf("--no-optional-locks", "status", "--porcelain", "-z", "--untracked-files=all"))
@@ -259,24 +264,36 @@ class GitCli(private val workTree: File) {
         return output.trim().takeIf { exit == 0 && it.isNotEmpty() }
     }
 
-    private fun run(vararg args: String): GitResult {
-        val (exit, output) = exec(args.toList())
+    private fun run(vararg args: String): GitResult = toResult(exec(args.toList()))
+
+    /** 会连接远程的命令：可能要等用户输入，超时更长，也要接上系统的密码对话框。 */
+    private fun network(vararg args: String): GitResult = toResult(exec(args.toList(), NETWORK_TIMEOUT_SECONDS, Askpass.environment()))
+
+    private fun toResult(execution: Pair<Int, String>): GitResult {
+        val (exit, output) = execution
         return GitResult(if (exit == 0) null else classifyFailure(output), output.trim())
     }
 
-    private fun exec(args: List<String>): Pair<Int, String> {
+    private fun exec(
+        args: List<String>,
+        timeoutSeconds: Long = TIMEOUT_SECONDS,
+        extraEnvironment: Map<String, String> = emptyMap(),
+    ): Pair<Int, String> {
         val process = ProcessBuilder(listOf("git") + args)
             .directory(workTree)
             .redirectErrorStream(true)
             .redirectInput(ProcessBuilder.Redirect.from(File("/dev/null")))
-            .apply { environment()["GIT_TERMINAL_PROMPT"] = "0" } // 没有终端可以回答，要密码时直接失败，不要卡住
+            .apply {
+                environment()["GIT_TERMINAL_PROMPT"] = "0" // 没有终端可以回答，不要卡在终端提示上
+                environment().putAll(extraEnvironment)
+            }
             .start()
         val output = StringBuilder()
         // 原样读取，不能按行拼：-z 的输出用 NUL 分隔，多一个换行就成了多一个文件
         val pump = Thread { output.append(process.inputStream.bufferedReader().readText()) }.apply { isDaemon = true; start() }
-        if (!process.waitFor(TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+        if (!process.waitFor(timeoutSeconds, TimeUnit.SECONDS)) {
             process.destroyForcibly()
-            return 1 to "git 运行超过 $TIMEOUT_SECONDS 秒，已停止"
+            return 1 to "git 运行超过 $timeoutSeconds 秒，已停止"
         }
         pump.join()
         return process.exitValue() to output.toString()
@@ -284,6 +301,53 @@ class GitCli(private val workTree: File) {
 
     private companion object {
         const val TIMEOUT_SECONDS = 120L
+        const val NETWORK_TIMEOUT_SECONDS = 600L
         const val EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904" // git 里空目录的固定哈希
+    }
+}
+
+/** 克隆地址里的仓库名，比如 git@github.com:me/repo.git 得到 repo。 */
+internal fun repoNameFromUrl(url: String): String =
+    url.trim().trimEnd('/').removeSuffix(".git").substringAfterLast('/').substringAfterLast(':').ifEmpty { "repo" }
+
+/**
+ * git 和 ssh 要密码时调用的小脚本，由它弹出 macOS 系统对话框。
+ * 密码由系统对话框直接交给 git，不经过 GitViz，所以应用既看不到也存不了。
+ * 其他系统没有这个脚本，要密码时直接失败并提示。
+ */
+internal object Askpass {
+    private const val Script = """#!/bin/sh
+exec /usr/bin/osascript - "$1" <<'APPLESCRIPT'
+on run argv
+    set promptText to item 1 of argv
+    activate
+    if promptText contains "yes/no" then
+        display dialog promptText buttons {"取消", "信任"} default button "取消" cancel button "取消" with title "GitViz" with icon caution
+        return "yes"
+    end if
+    if promptText contains "assword" or promptText contains "assphrase" or promptText contains "PIN" then
+        return text returned of (display dialog promptText default answer "" with hidden answer with title "GitViz")
+    end if
+    return text returned of (display dialog promptText default answer "" with title "GitViz")
+end run
+APPLESCRIPT
+"""
+
+    private val path: String? by lazy {
+        if (!isMac) return@lazy null
+        val file = File.createTempFile("gitviz-askpass", ".sh")
+        file.writeText(Script)
+        file.setReadable(false, false)
+        file.setWritable(false, false)
+        file.setReadable(true, true)
+        file.setWritable(true, true)
+        file.setExecutable(true, true)
+        file.deleteOnExit()
+        file.path
+    }
+
+    fun environment(): Map<String, String> {
+        val script = path ?: return emptyMap()
+        return mapOf("GIT_ASKPASS" to script, "SSH_ASKPASS" to script, "SSH_ASKPASS_REQUIRE" to "force")
     }
 }

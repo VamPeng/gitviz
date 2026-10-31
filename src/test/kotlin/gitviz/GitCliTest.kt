@@ -477,6 +477,54 @@ class GitCliTest {
         assertEquals(1, cli.stashList().size)
     }
 
+    @Test
+    fun `clone copies a repository into a new folder`() {
+        prepare()
+
+        assertTrue(GitCli(root).clone(origin.path, "copy").ok)
+        assertTrue(File(root, "copy/a").exists())
+        assertFalse(GitCli(root).clone(origin.path, "copy").ok)
+    }
+
+    @Test
+    fun `repository name comes from the url`() {
+        assertEquals("repo", repoNameFromUrl("git@github.com:me/repo.git"))
+        assertEquals("repo", repoNameFromUrl("https://github.com/me/repo/"))
+        assertEquals("repo", repoNameFromUrl("git@host:repo.git"))
+        assertEquals("origin", repoNameFromUrl("/tmp/origin.git"))
+    }
+
+    @Test
+    fun `askpass script is private, valid and holds no secrets`() {
+        val script = File(Askpass.environment().getValue("GIT_ASKPASS"))
+        val mode = java.nio.file.Files.getPosixFilePermissions(script.toPath()).map { it.name }.toSet()
+        assertEquals(setOf("OWNER_READ", "OWNER_WRITE", "OWNER_EXECUTE"), mode)
+
+        val p = ProcessBuilder("sh", "-n", script.path).redirectErrorStream(true).start()
+        assertEquals(0, p.waitFor())
+        assertEquals(Askpass.environment()["GIT_ASKPASS"], Askpass.environment()["SSH_ASKPASS"])
+    }
+
+    @Test
+    fun `network commands keep working with the askpass environment`() {
+        prepare()
+        commit(work, "a", "two\n")
+        assertTrue(GitCli(work).push().ok)
+    }
+
+    @Test
+    fun `recent repositories keep the newest first without duplicates`() {
+        val list = pushRecent(listOf("/a", "/b", "/c"), "/b", max = 3)
+        assertEquals(listOf("/b", "/a", "/c"), list)
+        assertEquals(listOf("/d", "/b", "/a"), pushRecent(list, "/d", max = 3))
+    }
+
+    @Test
+    fun `repo menu cannot reopen the current repository`() {
+        val items = labels(repoMenu("/x/a", listOf("/x/a", "/x/b"), {}, {}, {}))
+        assertEquals(listOf("a" to false, "b" to true, "打开仓库…" to true, "克隆仓库…" to true), items.map { it.label to it.enabled })
+    }
+
     private fun labels(entries: List<MenuEntry>) = entries.filterIsInstance<MenuItem>()
 
     private val noActions = GitActions({}, { _, _, _ -> }, {})

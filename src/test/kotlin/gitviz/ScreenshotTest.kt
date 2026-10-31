@@ -110,6 +110,22 @@ class ScreenshotTest {
         scene.close()
     }
 
+    @Test
+    fun `settings render`() {
+        val scene = ImageComposeScene(1112 * 2, 560 * 2, Density(2f)) {
+            GitVizTheme {
+                Surface(Modifier.fillMaxSize(), color = Palette.Ground, contentColor = Palette.Ink) {
+                    SettingsView(GitCli(File(".")), Modifier.fillMaxSize())
+                }
+            }
+        }
+        scene.render(0)
+        val image = scene.render(100_000_000L)
+        File("build/screens").mkdirs()
+        File("build/screens/settings.png").writeBytes(image.encodeToData(EncodedImageFormat.PNG)!!.bytes)
+        scene.close()
+    }
+
     private fun renderPopup(name: String, content: @Composable () -> Unit) {
         val scene = ImageComposeScene(520 * 2, 460 * 2, Density(2f)) {
             GitVizTheme {

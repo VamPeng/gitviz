@@ -24,6 +24,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.FrameWindowScope
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
@@ -64,7 +65,7 @@ fun main(args: Array<String>) {
     }
 }
 
-private enum class MainView { HISTORY, CHANGES, STASH, CONFLICT }
+private enum class MainView { HISTORY, CHANGES, STASH, CONFLICT, SETTINGS }
 
 internal class RepoState(
     val repo: GitRepo,
@@ -108,6 +109,7 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                 }
                 state?.repo?.close()
                 state = newState
+                newState.repo.workTree?.let { Settings.addRecentRepo(it.path) }
                 // 刷新时保持选中；提交不在了或换了仓库才回到第一个
                 val commits = newState.result.commits
                 selected = commits.firstOrNull { it.id == selected?.id } ?: commits.firstOrNull()
@@ -122,7 +124,25 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
     LaunchedEffect(Unit) { open(initialDir, quiet = !reportInitialError) }
     DisposableEffect(Unit) { onDispose { state?.repo?.close() } }
 
-    val chooseAndOpen = { chooseDirectory()?.let { open(it) }; Unit }
+    val chooseAndOpen = { chooseDirectory("选择 git 仓库目录")?.let { open(it) }; Unit }
+
+    fun askClone() {
+        dialog = DialogSpec("克隆仓库", "输入仓库地址，下一步选择保存到哪个文件夹。", "下一步", input = "仓库地址") { url, _ ->
+            val parent = chooseDirectory("选择保存到哪个文件夹") ?: return@DialogSpec
+            val name = repoNameFromUrl(url)
+            scope.launch {
+                net = NetStatus("正在克隆", url, NetState.RUNNING)
+                val result = withContext(Dispatchers.IO) { GitCli(parent).clone(url, name) }
+                val outcome = describeAction("正在克隆", "已克隆 $name", result)
+                net = outcome
+                if (result.ok) {
+                    open(File(parent, name))
+                    delay(2500)
+                    if (net === outcome) net = null
+                }
+            }
+        }
+    }
     val s = state
     val workTree = s?.repo?.workTree
     val cli = remember(workTree) { workTree?.let(::GitCli) } // 刷新时不换对象，正在写的提交说明才不会丢
@@ -228,8 +248,9 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                     modifier = Modifier.fillMaxWidth().weight(1f),
                 )
                 HorizontalDivider()
-                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp)) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     IconButton(if (Palette.isDark) Icons.Sun else Icons.Moon, onClick = Palette::toggle)
+                    IconButton(Icons.Settings) { view = MainView.SETTINGS }
                 }
             }
             VerticalDivider()
@@ -239,7 +260,8 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                 // 没有侧边栏时红绿灯压在工具栏上，要让开
                 val start = if (isMac && s == null) 84.dp else 18.dp
                 Toolbar(
-                    s, loading, start, query, onQuery = { query = it }, onOpen = chooseAndOpen,
+                    s, loading, start, query, onQuery = { query = it },
+                    onOpen = { menu = repoMenu(workTree?.path, Settings.recentRepos, { open(File(it)) }, chooseAndOpen, ::askClone) },
                     onRefresh = { s?.repo?.workTree?.let { open(it) } ?: s?.repo?.repository?.directory?.let { open(it) } },
                     netBusy = net?.state == NetState.RUNNING,
                     onPull = { runNet(NetOp.PULL) },
@@ -261,9 +283,11 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                 Text("打开失败：$it", color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(12.dp))
             }
             if (s == null) {
-                Welcome(loading, chooseAndOpen)
+                Welcome(loading, Settings.recentRepos, onRecent = { open(File(it)) }, onOpen = chooseAndOpen, onClone = ::askClone)
             } else {
-                if (view == MainView.CONFLICT && cli != null) {
+                if (view == MainView.SETTINGS) {
+                    SettingsView(cli, Modifier.fillMaxWidth().weight(1f))
+                } else if (view == MainView.CONFLICT && cli != null) {
                     ConflictView(
                         cli, conflicted, operation,
                         onAbort = { runNet(NetOp.ABORT) },
@@ -344,19 +368,47 @@ private fun WorkspaceItem(label: String, icon: String, selected: Boolean, badge:
 }
 
 @Composable
-private fun Welcome(loading: Boolean, onOpen: () -> Unit) {
+private fun Welcome(loading: Boolean, recent: List<String>, onRecent: (String) -> Unit, onOpen: () -> Unit, onClone: () -> Unit) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         if (loading) {
             CircularProgressIndicator()
         } else {
-            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("选择一个本地 git 仓库，查看它的分支和提交", fontSize = TypeScale.Body, color = Palette.Muted)
+            Column(Modifier.width(560.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("GitViz", fontSize = 28.sp, fontWeight = FontWeight.SemiBold)
+                    Text("选择一个本地 git 仓库，查看它的分支和提交。", fontSize = TypeScale.Body, color = Palette.Muted)
+                }
                 val shape = RoundedCornerShape(6.dp)
-                Text(
-                    "打开仓库", fontSize = TypeScale.Body, fontWeight = FontWeight.Medium, color = Palette.OnAccent,
-                    modifier = Modifier.clip(shape).background(Palette.Accent, shape).clickable(onClick = onOpen)
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                )
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "打开仓库…", fontSize = TypeScale.Body, fontWeight = FontWeight.SemiBold, color = Palette.OnAccent,
+                        modifier = Modifier.clip(shape).background(Palette.Accent, shape).clickable(onClick = onOpen)
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                    Text(
+                        "克隆仓库", fontSize = TypeScale.Body,
+                        modifier = Modifier.clip(shape).border(1.dp, Palette.Line, shape).clickable(onClick = onClone)
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                }
+                if (recent.isNotEmpty()) {
+                    Column {
+                        HorizontalDivider()
+                        Text("最近打开", fontSize = TypeScale.Small, color = Palette.Muted, modifier = Modifier.padding(vertical = 8.dp))
+                        for (path in recent) {
+                            Row(
+                                Modifier.fillMaxWidth().height(36.dp).clip(RoundedCornerShape(5.dp)).hoverRow()
+                                    .clickable { onRecent(path) }.padding(horizontal = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                Text(File(path).name, fontSize = TypeScale.Body, fontWeight = FontWeight.Medium, maxLines = 1)
+                                Text(path, fontSize = TypeScale.Small, fontFamily = CodeFont, color = Palette.Faint, maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -455,10 +507,10 @@ internal fun StatusBar(state: RepoState) {
     }
 }
 
-private fun chooseDirectory(): File? {
+private fun chooseDirectory(title: String): File? {
     val chooser = JFileChooser().apply {
         fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
-        dialogTitle = "选择 git 仓库目录"
+        dialogTitle = title
     }
     return if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) chooser.selectedFile else null
 }

@@ -91,7 +91,7 @@ private fun CommitRow(
     onMenu: (CommitInfo) -> Unit,
 ) {
     Row(
-        Modifier.fillMaxWidth().height(28.dp)
+        Modifier.fillMaxWidth().height(Settings.rowHeight.dp)
             .onRightClick { onMenu(c) }
             .hoverRow()
             .rowHighlight(isSelected)

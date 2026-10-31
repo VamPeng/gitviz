@@ -68,7 +68,7 @@ private fun StashRow(entry: StashEntry, selected: Boolean, onSelect: () -> Unit)
 @Composable
 private fun StashDetail(cli: GitCli, entry: StashEntry, a: GitActions, modifier: Modifier) {
     var selectedFile by remember(entry.id) { mutableStateOf<StashFile?>(null) }
-    var mode by remember { mutableStateOf(DiffMode.Unified) }
+    var mode by remember { mutableStateOf(Settings.defaultDiffMode) }
 
     Column(modifier) {
         Row(
