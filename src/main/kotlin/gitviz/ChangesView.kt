@@ -146,7 +146,7 @@ private fun GroupHeader(title: String, count: Int) {
     HorizontalDivider()
 }
 
-private fun statusBadge(code: Char): Pair<String, Color> = when (code) {
+internal fun statusBadge(code: Char): Pair<String, Color> = when (code) {
     '?' -> "?" to Palette.Link
     'A' -> "A" to Palette.Added
     'D' -> "D" to Palette.Removed

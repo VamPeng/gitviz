@@ -401,6 +401,82 @@ class GitCliTest {
         assertTrue(cli.status().isEmpty())
     }
 
+    @Test
+    fun `stash list and name status parse git output`() {
+        val sep = '\u001f'
+        val list = parseStashList("stash@{0}${sep}abc${sep}100${sep}On main: fix: colons stay\nstash@{1}${sep}def${sep}90${sep}WIP on dev: 1234567 last commit\n")
+        assertEquals(listOf("fix: colons stay", "1234567 last commit"), list.map { it.message })
+        assertEquals(listOf("main", "dev"), list.map { it.branch })
+
+        val files = parseNameStatus("M\u0000a b.txt\u0000R100\u0000old\u0000new\u0000A\u0000c\u0000")
+        assertEquals(listOf("a b.txt" to 'M', "new" to 'R', "c" to 'A'), files.map { it.path to it.code })
+    }
+
+    @Test
+    fun `stash takes tracked and untracked changes and pop brings them back`() {
+        prepare()
+        File(work, "a").writeText("changed\n")
+        File(work, "new").writeText("fresh\n")
+        val cli = GitCli(work)
+
+        assertTrue(cli.stash("my work").ok)
+        assertTrue(cli.status().isEmpty())
+        val entry = cli.stashList().single()
+        assertEquals("my work", entry.message)
+        assertEquals("main", entry.branch)
+
+        val files = cli.stashFiles(entry)
+        assertEquals(setOf("a" to false, "new" to true), files.map { it.path to it.untracked }.toSet())
+        assertTrue("+changed" in cli.stashDiff(entry, files.first { it.path == "a" }))
+        assertTrue("+fresh" in cli.stashDiff(entry, files.first { it.path == "new" }))
+
+        assertTrue(cli.popStash(entry).ok)
+        assertEquals("changed\n", File(work, "a").readText())
+        assertEquals("fresh\n", File(work, "new").readText())
+        assertTrue(cli.stashList().isEmpty())
+    }
+
+    @Test
+    fun `apply keeps the stash and drop removes it`() {
+        prepare()
+        File(work, "a").writeText("changed\n")
+        val cli = GitCli(work)
+        cli.stash("")
+        val entry = cli.stashList().single()
+
+        assertTrue(cli.applyStash(entry).ok)
+        assertEquals(1, cli.stashList().size)
+        assertTrue(cli.dropStash(entry).ok)
+        assertTrue(cli.stashList().isEmpty())
+    }
+
+    @Test
+    fun `a stale stash entry is not touched`() {
+        prepare()
+        val cli = GitCli(work)
+        File(work, "a").writeText("older\n")
+        cli.stash("older")
+        val stale = cli.stashList().single()
+        File(work, "a").writeText("newer\n")
+        cli.stash("newer") // stash@{0} 现在是另一条
+
+        assertFalse(cli.dropStash(stale).ok)
+        assertEquals(2, cli.stashList().size)
+    }
+
+    @Test
+    fun `a conflicting pop keeps the stash`() {
+        prepare()
+        File(work, "a").writeText("stashed\n")
+        val cli = GitCli(work)
+        cli.stash("mine")
+        commit(work, "a", "committed\n")
+
+        val result = cli.popStash(cli.stashList().single())
+        assertFalse(result.ok)
+        assertEquals(1, cli.stashList().size)
+    }
+
     private fun labels(entries: List<MenuEntry>) = entries.filterIsInstance<MenuItem>()
 
     private val noActions = GitActions({}, { _, _, _ -> }, {})

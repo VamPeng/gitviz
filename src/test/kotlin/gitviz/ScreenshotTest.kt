@@ -38,7 +38,7 @@ class ScreenshotTest {
                         }
                         VerticalDivider()
                         Column(Modifier.weight(1f).fillMaxHeight()) {
-                            Toolbar(state, false, 18.dp, "", {}, {}, {}, netBusy = false, onPull = {}, onPush = {}, onNewBranch = {})
+                            Toolbar(state, false, 18.dp, "", {}, {}, {}, netBusy = false, onPull = {}, onPush = {}, onNewBranch = {}, canStash = true, onStash = {})
                             HorizontalDivider()
                             CommitList(state, result.commits.indices.toList(), selected, rememberLazyListState(), { selected = it },
                                 Modifier.fillMaxWidth().weight(0.46f))
@@ -86,6 +86,28 @@ class ScreenshotTest {
         out.writeBytes(image.encodeToData(EncodedImageFormat.PNG)!!.bytes)
         scene.close()
         assertTrue(files.isNotEmpty())
+    }
+
+    /** 只在指定了有储藏的仓库时才渲染。 */
+    @Test
+    fun `stash view renders when a repository is given`() {
+        val dir = System.getenv("GITVIZ_SCREENSHOT_REPO") ?: return
+        val cli = GitCli(File(dir))
+        val stashes = cli.stashList()
+        val scene = ImageComposeScene(1112 * 2, 700 * 2, Density(2f)) {
+            GitVizTheme {
+                Surface(Modifier.fillMaxSize(), color = Palette.Ground, contentColor = Palette.Ink) {
+                    StashView(cli, stashes, GitActions({}, { _, _, _ -> }, {}), Modifier.fillMaxSize())
+                }
+            }
+        }
+        var image = scene.render(0)
+        repeat(10) { i ->
+            Thread.sleep(150)
+            image = scene.render((i + 1) * 100_000_000L)
+        }
+        File("build/screens/stash.png").writeBytes(image.encodeToData(EncodedImageFormat.PNG)!!.bytes)
+        scene.close()
     }
 
     private fun renderPopup(name: String, content: @Composable () -> Unit) {

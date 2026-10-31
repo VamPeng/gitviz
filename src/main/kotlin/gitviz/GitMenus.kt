@@ -44,6 +44,7 @@ data class DialogSpec(
     val message: String,
     val confirm: String,
     val input: String? = null,
+    val optional: Boolean = false,
     val initial: String = "",
     val danger: Boolean = false,
     val modes: Boolean = false,
@@ -171,7 +172,7 @@ internal fun GitMenuPopup(entries: List<MenuEntry>, onDismiss: () -> Unit) {
 internal fun ActionDialog(spec: DialogSpec, onDismiss: () -> Unit) {
     var text by remember(spec) { mutableStateOf(spec.initial) }
     var mode by remember(spec) { mutableStateOf(ResetMode.MIXED) }
-    val canConfirm = spec.input == null || text.isNotBlank()
+    val canConfirm = spec.input == null || spec.optional || text.isNotBlank()
     val shape = RoundedCornerShape(5.dp)
     val focus = remember { FocusRequester() }
 

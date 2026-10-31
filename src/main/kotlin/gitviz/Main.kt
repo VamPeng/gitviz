@@ -64,6 +64,8 @@ fun main(args: Array<String>) {
     }
 }
 
+private enum class MainView { HISTORY, CHANGES, STASH }
+
 internal class RepoState(
     val repo: GitRepo,
     val result: LoadResult,
@@ -82,7 +84,8 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
     var selected by remember { mutableStateOf<CommitInfo?>(null) }
     var query by remember { mutableStateOf("") }
     var net by remember { mutableStateOf<NetStatus?>(null) }
-    var showChanges by remember { mutableStateOf(false) }
+    var view by remember { mutableStateOf(MainView.HISTORY) }
+    var stashes by remember { mutableStateOf(emptyList<StashEntry>()) }
     var menu by remember { mutableStateOf<List<MenuEntry>?>(null) }
     var dialog by remember { mutableStateOf<DialogSpec?>(null) }
     var working by remember { mutableStateOf(emptyList<WorkingFile>()) }
@@ -125,7 +128,9 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
     val clipboard = LocalClipboardManager.current
 
     suspend fun reloadWorking() {
-        working = cli?.let { withContext(Dispatchers.IO) { it.status() } }.orEmpty()
+        val git = cli
+        working = git?.let { withContext(Dispatchers.IO) { it.status() } }.orEmpty()
+        stashes = git?.let { withContext(Dispatchers.IO) { it.stashList() } }.orEmpty()
     }
 
     // 文件可能在别的编辑器里改，定时读一次工作区状态
@@ -187,15 +192,16 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
             Column(Modifier.width(248.dp).fillMaxHeight().background(Palette.Rail)) {
                 if (isMac) WindowDraggableArea { Spacer(Modifier.fillMaxWidth().height(TitleBarHeight)) }
                 Column(Modifier.padding(horizontal = 6.dp).padding(bottom = 6.dp), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                    WorkspaceItem("本地改动", Icons.Edit, showChanges, working.size) { showChanges = true }
-                    WorkspaceItem("所有提交", Icons.History, !showChanges, 0) { showChanges = false }
+                    WorkspaceItem("本地改动", Icons.Edit, view == MainView.CHANGES, working.size) { view = MainView.CHANGES }
+                    WorkspaceItem("所有提交", Icons.History, view == MainView.HISTORY, 0) { view = MainView.HISTORY }
+                    WorkspaceItem("储藏", Icons.Stash, view == MainView.STASH, stashes.size) { view = MainView.STASH }
                 }
                 HorizontalDivider()
                 RefSidebar(
                     s.result.refs, query, selected?.id,
                     isLoaded = { it in s.indexById },
                     onSelect = { ref ->
-                        showChanges = false
+                        view = MainView.HISTORY
                         s.indexById[ref.commitId]?.let(::selectCommit)
                     },
                     onBranchOpen = { ref ->
@@ -226,6 +232,11 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                     onPull = { runNet(NetOp.PULL) },
                     onPush = { runNet(NetOp.PUSH) },
                     onNewBranch = { selected?.let { askNewBranch(it, actions) } },
+                    canStash = working.isNotEmpty(),
+                    onStash = {
+                        askStash(working.size, actions)
+                        view = MainView.STASH
+                    },
                 )
             }
             HorizontalDivider()
@@ -239,7 +250,9 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
             if (s == null) {
                 Welcome(loading, chooseAndOpen)
             } else {
-                if (showChanges && cli != null) {
+                if (view == MainView.STASH && cli != null) {
+                    StashView(cli, stashes, actions, Modifier.fillMaxWidth().weight(1f))
+                } else if (view == MainView.CHANGES && cli != null) {
                     ChangesView(
                         cli, working, s.result.currentBranch,
                         onChanged = { historyChanged ->
@@ -340,6 +353,8 @@ internal fun Toolbar(
     onPull: () -> Unit,
     onPush: () -> Unit,
     onNewBranch: () -> Unit,
+    canStash: Boolean,
+    onStash: () -> Unit,
 ) {
     Row(
         Modifier.fillMaxWidth().height(TitleBarHeight).padding(start = start, end = 14.dp),
@@ -363,7 +378,7 @@ internal fun Toolbar(
                 ToolButton("拉取", Icons.Pull, enabled = canSync, onClick = onPull)
                 ToolButton("推送", Icons.Push, enabled = canSync, onClick = onPush)
                 ToolButton("新建分支", Icons.Branch, enabled = canSync, onClick = onNewBranch)
-                ToolButton("储藏", Icons.Stash, enabled = false) {}
+                ToolButton("储藏", Icons.Stash, enabled = canSync && canStash, onClick = onStash)
             }
             SearchField(query, onQuery)
         }

@@ -23,6 +23,36 @@ data class WorkingFile(val path: String, val oldPath: String?, val index: Char, 
     val hasUnstaged: Boolean get() = worktree != ' '
 }
 
+/** 一条储藏。ref 是 stash@{n}，序号会随增删变化，id 才是它不变的身份。 */
+data class StashEntry(val ref: String, val id: String, val message: String, val branch: String, val timeSeconds: Long)
+
+/** 储藏里的一个文件。code 是 A、M、D 这样的状态字母，untracked 表示储藏时还是未跟踪的新文件。 */
+data class StashFile(val path: String, val code: Char, val untracked: Boolean = false)
+
+private const val FieldSeparator = '\u001f'
+
+/** 解析 stash list，每行是 ref、哈希、时间、说明。说明形如 “On main: 消息” 或 “WIP on main: abc1234 消息”。 */
+internal fun parseStashList(text: String): List<StashEntry> = text.lineSequence().filter { it.isNotBlank() }.mapNotNull { line ->
+    val fields = line.split(FieldSeparator, limit = 4)
+    if (fields.size < 4) return@mapNotNull null
+    val subject = fields[3]
+    val branch = subject.substringBefore(':').removePrefix("WIP on ").removePrefix("On ").trim()
+    StashEntry(fields[0], fields[1], subject.substringAfter(": ", subject), branch, fields[2].toLongOrNull() ?: 0)
+}.toList()
+
+/** 解析 git diff --name-status -z：状态和路径用 NUL 分隔，重命名和复制有两段路径。 */
+internal fun parseNameStatus(text: String): List<StashFile> {
+    val parts = text.split('\u0000').filter { it.isNotEmpty() }
+    val files = ArrayList<StashFile>()
+    var i = 0
+    while (i < parts.size) {
+        val code = parts[i++].first()
+        if (code == 'R' || code == 'C') i++ // 跳过旧路径
+        parts.getOrNull(i++)?.let { files += StashFile(it, code) }
+    }
+    return files
+}
+
 /** 解析 git status --porcelain -z：用 NUL 分隔，路径不转义；重命名多带一段旧路径。 */
 internal fun parseStatus(text: String): List<WorkingFile> {
     val parts = text.split('\u0000')
@@ -122,6 +152,51 @@ class GitCli(private val workTree: File) {
 
     fun reset(commitId: String, mode: ResetMode): GitResult = run("reset", mode.flag, commitId)
 
+    fun stashList(): List<StashEntry> {
+        val format = listOf("%gd", "%H", "%ct", "%gs").joinToString("%x1f")
+        val (exit, output) = exec(listOf("stash", "list", "--format=$format"))
+        return if (exit == 0) parseStashList(output) else emptyList()
+    }
+
+    /** 收起工作区的全部改动，包括未跟踪的文件。 */
+    fun stash(message: String): GitResult =
+        if (message.isBlank()) run("stash", "push", "--include-untracked")
+        else run("stash", "push", "--include-untracked", "-m", message)
+
+    fun stashFiles(entry: StashEntry): List<StashFile> {
+        val tracked = parseNameStatus(exec(listOf("diff", "--name-status", "-z", "${entry.id}^1", entry.id)).second)
+        val untracked = if (hasUntracked(entry)) {
+            exec(listOf("ls-tree", "-r", "--name-only", "-z", "${entry.id}^3")).second.split('\u0000')
+                .filter { it.isNotEmpty() }.map { StashFile(it, 'A', untracked = true) }
+        } else emptyList()
+        return tracked + untracked
+    }
+
+    fun stashDiff(entry: StashEntry, file: StashFile): String {
+        val range = if (file.untracked) listOf(EMPTY_TREE, "${entry.id}^3") else listOf("${entry.id}^1", entry.id)
+        return exec(listOf("diff", "--no-color") + range + listOf("--", literal(file.path))).second.take(GitRepo.MAX_DIFF_CHARS)
+    }
+
+    fun applyStash(entry: StashEntry): GitResult = stashChange(entry, "apply")
+
+    /** 应用并删除。有冲突时 git 会保留储藏。 */
+    fun popStash(entry: StashEntry): GitResult = stashChange(entry, "pop")
+
+    fun dropStash(entry: StashEntry): GitResult = ifStillThere(entry) { run("stash", "drop", "-q", entry.ref) }
+
+    private fun stashChange(entry: StashEntry, command: String) = ifStillThere(entry) {
+        val result = run("stash", command, entry.ref)
+        // 储藏没有 --abort，冲突的文件已经写进工作区，只能到本地改动里处理
+        if (result.failure == GitFailure.CONFLICT) GitResult(GitFailure.OTHER, "有冲突，文件已写入工作区，储藏保留。") else result
+    }
+
+    /** stash@{n} 的序号会变，动手前核对它还是用户选的那一条，不然可能删错。 */
+    private fun ifStillThere(entry: StashEntry, action: () -> GitResult): GitResult =
+        if (capture("rev-parse", "-q", "--verify", entry.ref) == entry.id) action()
+        else GitResult(GitFailure.OTHER, "储藏列表已经变了，请重新选择")
+
+    private fun hasUntracked(entry: StashEntry) = capture("rev-parse", "-q", "--verify", "${entry.id}^3") != null
+
     /** 放弃进行到一半的合并、cherry-pick 或回滚，回到操作之前。 */
     fun abortOperation(): GitResult {
         val gitDir = workTree.resolve(capture("rev-parse", "--git-dir") ?: ".git")
@@ -155,9 +230,9 @@ class GitCli(private val workTree: File) {
             .redirectInput(ProcessBuilder.Redirect.from(File("/dev/null")))
             .apply { environment()["GIT_TERMINAL_PROMPT"] = "0" } // 没有终端可以回答，要密码时直接失败，不要卡住
             .start()
-        val reader = process.inputStream.bufferedReader()
         val output = StringBuilder()
-        val pump = Thread { reader.forEachLine { output.appendLine(it) } }.apply { isDaemon = true; start() }
+        // 原样读取，不能按行拼：-z 的输出用 NUL 分隔，多一个换行就成了多一个文件
+        val pump = Thread { output.append(process.inputStream.bufferedReader().readText()) }.apply { isDaemon = true; start() }
         if (!process.waitFor(TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
             process.destroyForcibly()
             return 1 to "git 运行超过 $TIMEOUT_SECONDS 秒，已停止"
@@ -168,5 +243,6 @@ class GitCli(private val workTree: File) {
 
     private companion object {
         const val TIMEOUT_SECONDS = 120L
+        const val EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904" // git 里空目录的固定哈希
     }
 }
