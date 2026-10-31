@@ -1,6 +1,6 @@
 # GitViz
 
-Kotlin + Compose Desktop + JGit 写的 git 可视化客户端，目前是第一版骨架（只读）。
+Kotlin + Compose Desktop + JGit 写的 git 可视化客户端，还在开发中。
 
 ## 功能
 - 打开本地仓库（启动目录是仓库会自动打开，也可以点「打开仓库」选择）
@@ -8,7 +8,8 @@ Kotlin + Compose Desktop + JGit 写的 git 可视化客户端，目前是第一�
 - 工具栏搜索：同时搜提交、作者、哈希、分支和标签
 - 带分支图的提交历史：分支、远程分支、标签、HEAD 标记
 - 下方详情：点提交查看改动文件和增删行数，点文件看 diff（统一或并排，带行号）、文件历史和 Blame
-- 浅色和深色主题，配色是石墨橙，左下角切换（目前只读，写操作是占位）
+- 浅色和深色主题，配色是石墨橙，左下角切换
+- 拉取和推送：调用系统的 git，沿用现有的 SSH 和钥匙串配置；其余写操作是占位
 - 默认加载最近 5000 个提交（`GitRepo.MAX_COMMITS`）
 
 ## 运行
@@ -44,6 +45,8 @@ Kotlin + Compose Desktop + JGit 写的 git 可视化客户端，目前是第一�
 | `Components.kt` | 图标、按钮、头像这些通用组件 |
 | `CommitList.kt` | 提交列表 |
 | `CommitDetail.kt` | 提交详情、diff、文件历史、Blame |
+| `GitCli.kt` | 调用系统 git 做拉取和推送，判断失败原因 |
+| `NetBanner.kt` | 拉取、推送的进度和失败提示 |
 | `Main.kt` | 窗口、工具栏、状态栏 |
 
 界面原型在 `docs/prototype/`，改界面前先看那里。`ScreenshotTest` 会把主界面渲染成图片存到 `build/screens/`。

@@ -38,7 +38,7 @@ class ScreenshotTest {
                         }
                         VerticalDivider()
                         Column(Modifier.weight(1f).fillMaxHeight()) {
-                            Toolbar(state, false, 18.dp, "", {}, {}, {})
+                            Toolbar(state, false, 18.dp, "", {}, {}, {}, netBusy = false, onPull = {}, onPush = {})
                             HorizontalDivider()
                             CommitList(state, result.commits.indices.toList(), selected, rememberLazyListState(), { selected = it },
                                 Modifier.fillMaxWidth().weight(0.46f))

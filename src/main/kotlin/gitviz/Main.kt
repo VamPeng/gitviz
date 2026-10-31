@@ -27,6 +27,7 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -78,6 +79,7 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
     var error by remember { mutableStateOf<String?>(null) }
     var selected by remember { mutableStateOf<CommitInfo?>(null) }
     var query by remember { mutableStateOf("") }
+    var net by remember { mutableStateOf<NetStatus?>(null) }
     val commitListState = rememberLazyListState()
 
     fun open(dir: File, quiet: Boolean = false) {
@@ -112,6 +114,21 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
 
     val chooseAndOpen = { chooseDirectory()?.let { open(it) }; Unit }
     val s = state
+
+    fun runNet(op: NetOp) {
+        val workTree = s?.repo?.workTree ?: return
+        scope.launch {
+            net = NetStatus(op.running, "origin", NetState.RUNNING)
+            val cli = GitCli(workTree)
+            val result = withContext(Dispatchers.IO) { if (op == NetOp.PUSH) cli.push() else cli.pull() }
+            net = describe(op, result)
+            open(workTree)
+            if (result.ok) {
+                delay(2500)
+                net = null
+            }
+        }
+    }
     val shown = remember(s, query) { s?.let { filterCommits(it.result.commits, query) }.orEmpty() }
 
     fun selectCommit(index: Int) {
@@ -143,11 +160,19 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
             WindowDraggableArea {
                 // 没有侧边栏时红绿灯压在工具栏上，要让开
                 val start = if (isMac && s == null) 84.dp else 18.dp
-                Toolbar(s, loading, start, query, onQuery = { query = it }, onOpen = chooseAndOpen, onRefresh = {
-                    s?.repo?.workTree?.let { open(it) } ?: s?.repo?.repository?.directory?.let { open(it) }
-                })
+                Toolbar(
+                    s, loading, start, query, onQuery = { query = it }, onOpen = chooseAndOpen,
+                    onRefresh = { s?.repo?.workTree?.let { open(it) } ?: s?.repo?.repository?.directory?.let { open(it) } },
+                    netBusy = net?.state == NetState.RUNNING,
+                    onPull = { runNet(NetOp.PULL) },
+                    onPush = { runNet(NetOp.PUSH) },
+                )
             }
             HorizontalDivider()
+            net?.let {
+                NetBanner(it, onAction = ::runNet, onDismiss = { net = null })
+                HorizontalDivider()
+            }
             error?.let {
                 Text("打开失败：$it", color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(12.dp))
             }
@@ -209,6 +234,9 @@ internal fun Toolbar(
     onQuery: (String) -> Unit,
     onOpen: () -> Unit,
     onRefresh: () -> Unit,
+    netBusy: Boolean,
+    onPull: () -> Unit,
+    onPush: () -> Unit,
 ) {
     Row(
         Modifier.fillMaxWidth().height(TitleBarHeight).padding(start = start, end = 14.dp),
@@ -228,9 +256,10 @@ internal fun Toolbar(
         if (state != null) {
             Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                 ToolButton("刷新", Icons.Refresh, enabled = !loading, onClick = onRefresh)
-                // 写操作在下一步接上
-                ToolButton("拉取", Icons.Pull, enabled = false) {}
-                ToolButton("推送", Icons.Push, enabled = false) {}
+                val canSync = !loading && !netBusy && state.repo.workTree != null
+                ToolButton("拉取", Icons.Pull, enabled = canSync, onClick = onPull)
+                ToolButton("推送", Icons.Push, enabled = canSync, onClick = onPush)
+                // 其余写操作还没接上
                 ToolButton("新建分支", Icons.Branch, enabled = false) {}
                 ToolButton("储藏", Icons.Stash, enabled = false) {}
             }
