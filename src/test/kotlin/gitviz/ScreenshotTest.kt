@@ -64,6 +64,30 @@ class ScreenshotTest {
         assertTrue(out.length() > 0)
     }
 
+    /** 工作区干净时没什么可看，所以只在指定了仓库时才渲染。 */
+    @Test
+    fun `changes view renders when a repository is given`() {
+        val dir = System.getenv("GITVIZ_SCREENSHOT_REPO") ?: return
+        val cli = GitCli(File(dir))
+        val files = cli.status()
+        val scene = ImageComposeScene(1112 * 2, 700 * 2, Density(2f)) {
+            GitVizTheme {
+                Surface(Modifier.fillMaxSize(), color = Palette.Ground, contentColor = Palette.Ink) {
+                    ChangesView(cli, files, "main", {}, { _, _ -> }, Modifier.fillMaxSize())
+                }
+            }
+        }
+        var image = scene.render(0)
+        repeat(10) { i ->
+            Thread.sleep(150)
+            image = scene.render((i + 1) * 100_000_000L)
+        }
+        val out = File("build/screens/changes.png").apply { parentFile.mkdirs() }
+        out.writeBytes(image.encodeToData(EncodedImageFormat.PNG)!!.bytes)
+        scene.close()
+        assertTrue(files.isNotEmpty())
+    }
+
     @Test
     fun `main window renders in both themes`() {
         val start = Palette.isDark

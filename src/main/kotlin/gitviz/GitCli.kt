@@ -10,6 +10,30 @@ data class GitResult(val failure: GitFailure?, val output: String) {
     val ok: Boolean get() = failure == null
 }
 
+/** 工作区里一个有改动的文件。index、worktree 是 git status 的两列状态字母。 */
+data class WorkingFile(val path: String, val oldPath: String?, val index: Char, val worktree: Char) {
+    val untracked: Boolean get() = index == '?'
+    val hasStaged: Boolean get() = index != ' ' && index != '?'
+    val hasUnstaged: Boolean get() = worktree != ' '
+}
+
+/** 解析 git status --porcelain -z：用 NUL 分隔，路径不转义；重命名多带一段旧路径。 */
+internal fun parseStatus(text: String): List<WorkingFile> {
+    val parts = text.split('\u0000')
+    val files = ArrayList<WorkingFile>()
+    var i = 0
+    while (i < parts.size) {
+        val entry = parts[i++]
+        if (entry.length < 4) continue
+        val index = entry[0]
+        val worktree = entry[1]
+        val moved = index == 'R' || index == 'C' || worktree == 'R' || worktree == 'C'
+        val oldPath = if (moved) parts.getOrNull(i++) else null
+        files += WorkingFile(entry.substring(3), oldPath, index, worktree)
+    }
+    return files
+}
+
 /** 从 git 的输出判断失败原因，界面据此决定显示什么、提供什么操作。 */
 internal fun classifyFailure(output: String): GitFailure = when {
     "CONFLICT" in output || "Automatic merge failed" in output -> GitFailure.CONFLICT
@@ -36,6 +60,41 @@ class GitCli(private val workTree: File) {
     }
 
     fun pull(): GitResult = run("pull", "--no-rebase", "--no-edit")
+
+    fun status(): List<WorkingFile> {
+        val (exit, output) = exec(listOf("--no-optional-locks", "status", "--porcelain", "-z", "--untracked-files=all"))
+        return if (exit == 0) parseStatus(output) else emptyList()
+    }
+
+    fun stage(file: WorkingFile): GitResult = run("add", "--", literal(file.path))
+
+    fun unstage(file: WorkingFile): GitResult =
+        if (hasCommits()) run("restore", "--staged", "--", literal(file.path))
+        else run("rm", "--cached", "-q", "--", literal(file.path))
+
+    /** 丢弃工作区的改动，已暂存的部分不动。未跟踪的文件会被删除。 */
+    fun discard(file: WorkingFile): GitResult =
+        if (file.untracked) run("clean", "-f", "-q", "--", literal(file.path))
+        else run("restore", "--", literal(file.path))
+
+    fun diff(file: WorkingFile, staged: Boolean): String {
+        val args = when {
+            file.untracked -> listOf("diff", "--no-color", "--no-index", "--", "/dev/null", file.path)
+            staged -> listOf("diff", "--no-color", "--cached", "--", literal(file.path))
+            else -> listOf("diff", "--no-color", "--", literal(file.path))
+        }
+        return exec(args).second.take(GitRepo.MAX_DIFF_CHARS)
+    }
+
+    fun commit(message: String, amend: Boolean): GitResult =
+        if (amend) run("commit", "--amend", "-m", message) else run("commit", "-m", message)
+
+    fun lastCommitMessage(): String = capture("log", "-1", "--format=%B").orEmpty()
+
+    private fun hasCommits(): Boolean = capture("rev-parse", "-q", "--verify", "HEAD") != null
+
+    /** 按字面匹配路径，不然 [id].tsx 这样的文件名会被当成通配符，可能操作到别的文件。 */
+    private fun literal(path: String) = ":(literal)$path"
 
     private fun capture(vararg args: String): String? {
         val (exit, output) = exec(args.toList())

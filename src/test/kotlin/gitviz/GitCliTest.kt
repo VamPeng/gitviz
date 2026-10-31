@@ -111,6 +111,148 @@ class GitCliTest {
         assertEquals(GitFailure.OTHER, result.failure)
     }
 
+    private fun file(name: String) = GitCli(work).status().single { it.path == name }
+
+    @Test
+    fun `status lists staged, unstaged and untracked files`() {
+        prepare()
+        File(work, "b").writeText("x\n")
+        git(work, "add", "b")
+        File(work, "a").writeText("changed\n")
+        File(work, "new file.txt").writeText("y\n")
+
+        val cli = GitCli(work).status().associateBy { it.path }
+        assertTrue(cli.getValue("b").hasStaged)
+        assertFalse(cli.getValue("b").hasUnstaged)
+        assertTrue(cli.getValue("a").hasUnstaged)
+        assertTrue(cli.getValue("new file.txt").untracked)
+        assertFalse(cli.getValue("new file.txt").hasStaged)
+    }
+
+    @Test
+    fun `status keeps the old path of a rename`() {
+        val files = parseStatus("R  new name.txt\u0000old name.txt\u0000 M a\u0000?? b\u0000")
+        assertEquals(listOf("new name.txt", "a", "b"), files.map { it.path })
+        assertEquals("old name.txt", files[0].oldPath)
+    }
+
+    @Test
+    fun `stage and unstage move a file between the two lists`() {
+        prepare()
+        File(work, "a").writeText("changed\n")
+        val cli = GitCli(work)
+
+        assertTrue(cli.stage(file("a")).ok)
+        assertTrue(file("a").hasStaged)
+        assertFalse(file("a").hasUnstaged)
+
+        assertTrue(cli.unstage(file("a")).ok)
+        assertFalse(file("a").hasStaged)
+        assertTrue(file("a").hasUnstaged)
+    }
+
+    @Test
+    fun `unstage works before the first commit`() {
+        git(root, "init", "-q", "--initial-branch=main", work.path)
+        setUp(work)
+        File(work, "a").writeText("x\n")
+        git(work, "add", "a")
+
+        assertTrue(GitCli(work).unstage(file("a")).ok)
+        assertTrue(file("a").untracked)
+    }
+
+    @Test
+    fun `discard restores only the chosen file`() {
+        prepare()
+        commit(work, "keep", "base\n")
+        File(work, "a").writeText("changed\n")
+        File(work, "keep").writeText("also changed\n")
+
+        assertTrue(GitCli(work).discard(file("a")).ok)
+        assertEquals("one\n", File(work, "a").readText())
+        assertEquals("also changed\n", File(work, "keep").readText())
+    }
+
+    @Test
+    fun `discard keeps what is already staged`() {
+        prepare()
+        File(work, "a").writeText("staged\n")
+        git(work, "add", "a")
+        File(work, "a").writeText("unstaged\n")
+
+        assertTrue(GitCli(work).discard(file("a")).ok)
+        assertEquals("staged\n", File(work, "a").readText())
+    }
+
+    @Test
+    fun `discard removes an untracked file and nothing else`() {
+        prepare()
+        File(work, "scratch.txt").writeText("x\n")
+        File(work, "other.txt").writeText("y\n")
+
+        assertTrue(GitCli(work).discard(file("scratch.txt")).ok)
+        assertFalse(File(work, "scratch.txt").exists())
+        assertTrue(File(work, "other.txt").exists())
+    }
+
+    @Test
+    fun `glob characters in a file name are taken literally`() {
+        prepare()
+        commit(work, "x", "base\n")
+        File(work, "[x]").writeText("mine\n")
+        File(work, "x").writeText("do not touch\n")
+
+        assertTrue(GitCli(work).discard(file("[x]")).ok)
+        assertFalse(File(work, "[x]").exists())
+        assertEquals("do not touch\n", File(work, "x").readText())
+    }
+
+    @Test
+    fun `diff shows staged, unstaged and untracked changes`() {
+        prepare()
+        File(work, "a").writeText("staged\n")
+        git(work, "add", "a")
+        File(work, "a").writeText("unstaged\n")
+        File(work, "new").writeText("fresh\n")
+        val cli = GitCli(work)
+
+        assertTrue("+staged" in cli.diff(file("a"), staged = true))
+        assertTrue("+unstaged" in cli.diff(file("a"), staged = false))
+        assertTrue("+fresh" in cli.diff(file("new"), staged = false))
+    }
+
+    @Test
+    fun `commit and amend change the history`() {
+        prepare()
+        File(work, "a").writeText("two\n")
+        val cli = GitCli(work)
+        cli.stage(file("a"))
+
+        assertTrue(cli.commit("second", amend = false).ok)
+        assertEquals("second", cli.lastCommitMessage())
+        val count = git(work, "rev-list", "--count", "HEAD")
+
+        assertTrue(cli.commit("second, reworded", amend = true).ok)
+        assertEquals("second, reworded", cli.lastCommitMessage())
+        assertEquals(count, git(work, "rev-list", "--count", "HEAD"))
+    }
+
+    @Test
+    fun `a failing commit hook is reported`() {
+        prepare()
+        File(work, "a").writeText("two\n")
+        GitCli(work).stage(file("a"))
+        File(work, ".git/hooks/pre-commit").apply {
+            writeText("#!/bin/sh\necho hook said no\nexit 1\n")
+            setExecutable(true)
+        }
+
+        val result = GitCli(work).commit("nope", amend = false)
+        assertFalse(result.ok)
+        assertTrue("hook said no" in result.output)
+    }
+
     @Test
     fun `rejected push offers pull as the next step`() {
         val status = describe(NetOp.PUSH, GitResult(GitFailure.REJECTED, "! [rejected] main -> main (fetch first)"))

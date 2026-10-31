@@ -39,7 +39,7 @@ import kotlinx.coroutines.withContext
 import org.eclipse.jgit.diff.DiffEntry
 
 private enum class FileTab { Diff, History, Blame }
-private enum class DiffMode { Unified, Split }
+internal enum class DiffMode { Unified, Split }
 
 private val LineHeight = 18.dp
 private val CharWidth = 7.4.dp // Menlo 12sp 一个字符的大致宽度，用来算横向滚动的范围
@@ -249,7 +249,7 @@ private fun FilePane(
 
 /** 在 IO 线程读数据，读完之前转圈，失败时显示原因。 */
 @Composable
-private fun <T : Any> Loaded(key: Any, modifier: Modifier, load: () -> T, content: @Composable (T) -> Unit) {
+internal fun <T : Any> Loaded(key: Any, modifier: Modifier, load: () -> T, content: @Composable (T) -> Unit) {
     var result by remember(key) { mutableStateOf<Result<T>?>(null) }
     LaunchedEffect(key) { result = withContext(Dispatchers.IO) { runCatching(load) } }
     val current = result
@@ -263,7 +263,7 @@ private fun <T : Any> Loaded(key: Any, modifier: Modifier, load: () -> T, conten
 }
 
 @Composable
-private fun Message(text: String, modifier: Modifier) {
+internal fun Message(text: String, modifier: Modifier) {
     Box(modifier, contentAlignment = Alignment.Center) { Text(text, fontSize = TypeScale.Body, color = Palette.Muted) }
 }
 
@@ -319,7 +319,7 @@ private fun DiffContent(repo: GitRepo, file: FileChange, mode: DiffMode, modifie
 }
 
 @Composable
-private fun UnifiedDiff(lines: List<DiffLine>, modifier: Modifier) {
+internal fun UnifiedDiff(lines: List<DiffLine>, modifier: Modifier) {
     val longest = remember(lines) { lines.maxOf { it.text.length } }
     CodeList(longest, NumberColumn * 2 + 14.dp, modifier) {
         items(lines) { line ->
@@ -336,7 +336,7 @@ private fun UnifiedDiff(lines: List<DiffLine>, modifier: Modifier) {
 }
 
 @Composable
-private fun SplitDiff(lines: List<DiffLine>, modifier: Modifier) {
+internal fun SplitDiff(lines: List<DiffLine>, modifier: Modifier) {
     val rows = remember(lines) { toSplitRows(lines) }
     val listState = rememberLazyListState()
     Box(modifier) {

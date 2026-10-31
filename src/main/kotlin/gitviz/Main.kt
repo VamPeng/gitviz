@@ -80,6 +80,8 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
     var selected by remember { mutableStateOf<CommitInfo?>(null) }
     var query by remember { mutableStateOf("") }
     var net by remember { mutableStateOf<NetStatus?>(null) }
+    var showChanges by remember { mutableStateOf(false) }
+    var working by remember { mutableStateOf(emptyList<WorkingFile>()) }
     val commitListState = rememberLazyListState()
 
     fun open(dir: File, quiet: Boolean = false) {
@@ -114,6 +116,19 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
 
     val chooseAndOpen = { chooseDirectory()?.let { open(it) }; Unit }
     val s = state
+    val cli = remember(s?.repo) { s?.repo?.workTree?.let(::GitCli) }
+
+    suspend fun reloadWorking() {
+        working = cli?.let { withContext(Dispatchers.IO) { it.status() } }.orEmpty()
+    }
+
+    // 文件可能在别的编辑器里改，定时读一次工作区状态
+    LaunchedEffect(cli) {
+        while (true) {
+            reloadWorking()
+            delay(3000)
+        }
+    }
 
     fun runNet(op: NetOp) {
         val workTree = s?.repo?.workTree ?: return
@@ -143,10 +158,18 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
             // 侧边栏从窗口顶部铺下来，顶上一段留给红绿灯
             Column(Modifier.width(248.dp).fillMaxHeight().background(Palette.Rail)) {
                 if (isMac) WindowDraggableArea { Spacer(Modifier.fillMaxWidth().height(TitleBarHeight)) }
+                Column(Modifier.padding(horizontal = 6.dp).padding(bottom = 6.dp), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                    WorkspaceItem("本地改动", Icons.Edit, showChanges, working.size) { showChanges = true }
+                    WorkspaceItem("所有提交", Icons.History, !showChanges, 0) { showChanges = false }
+                }
+                HorizontalDivider()
                 RefSidebar(
                     s.result.refs, query, selected?.id,
                     isLoaded = { it in s.indexById },
-                    onSelect = { ref -> s.indexById[ref.commitId]?.let(::selectCommit) },
+                    onSelect = { ref ->
+                        showChanges = false
+                        s.indexById[ref.commitId]?.let(::selectCommit)
+                    },
                     modifier = Modifier.fillMaxWidth().weight(1f),
                 )
                 HorizontalDivider()
@@ -179,13 +202,25 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
             if (s == null) {
                 Welcome(loading, chooseAndOpen)
             } else {
-                CommitList(s, shown, selected, commitListState, onSelect = { selected = it }, Modifier.fillMaxWidth().weight(0.46f))
-                HorizontalDivider()
-                CommitDetail(
-                    s.repo, selected,
-                    onOpenCommit = { id -> s.indexById[id]?.let(::selectCommit) },
-                    Modifier.fillMaxWidth().weight(0.54f),
-                )
+                if (showChanges && cli != null) {
+                    ChangesView(
+                        cli, working, s.result.currentBranch,
+                        onChanged = { historyChanged ->
+                            scope.launch { reloadWorking() }
+                            if (historyChanged) s.repo.workTree?.let { open(it) }
+                        },
+                        onFailure = { title, detail -> net = NetStatus(title, detail, NetState.FAILED) },
+                        modifier = Modifier.fillMaxWidth().weight(1f),
+                    )
+                } else {
+                    CommitList(s, shown, selected, commitListState, onSelect = { selected = it }, Modifier.fillMaxWidth().weight(0.46f))
+                    HorizontalDivider()
+                    CommitDetail(
+                        s.repo, selected,
+                        onOpenCommit = { id -> s.indexById[id]?.let(::selectCommit) },
+                        Modifier.fillMaxWidth().weight(0.54f),
+                    )
+                }
                 HorizontalDivider()
                 StatusBar(s)
             }
@@ -205,6 +240,27 @@ internal fun filterCommits(commits: List<CommitInfo>, query: String): List<Int> 
 }
 
 internal val TitleBarHeight = 52.dp
+
+@Composable
+private fun WorkspaceItem(label: String, icon: String, selected: Boolean, badge: Int, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().height(28.dp).clip(RoundedCornerShape(5.dp))
+            .background(if (selected) Palette.Raised else androidx.compose.ui.graphics.Color.Transparent)
+            .clickable(onClick = onClick).padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(icon, if (selected) Palette.AccentInk else Palette.Muted, size = 15.dp)
+        Text(label, fontSize = TypeScale.Body, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            modifier = Modifier.weight(1f))
+        if (badge > 0) {
+            Text(
+                "$badge", fontSize = TypeScale.Caption, fontWeight = FontWeight.SemiBold, color = Palette.OnAccent,
+                modifier = Modifier.background(Palette.Accent, RoundedCornerShape(8.dp)).padding(horizontal = 6.dp),
+            )
+        }
+    }
+}
 
 @Composable
 private fun Welcome(loading: Boolean, onOpen: () -> Unit) {

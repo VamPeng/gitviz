@@ -9,7 +9,8 @@ Kotlin + Compose Desktop + JGit 写的 git 可视化客户端，还在开发中�
 - 带分支图的提交历史：分支、远程分支、标签、HEAD 标记
 - 下方详情：点提交查看改动文件和增删行数，点文件看 diff（统一或并排，带行号）、文件历史和 Blame
 - 浅色和深色主题，配色是石墨橙，左下角切换
-- 拉取和推送：调用系统的 git，沿用现有的 SSH 和钥匙串配置；其余写操作是占位
+- 本地改动：暂存、取消暂存、丢弃、提交、修改上一次提交，工作区每 3 秒自动刷新
+- 拉取和推送：调用系统的 git，沿用现有的 SSH 和钥匙串配置；新建分支和储藏是占位
 - 默认加载最近 5000 个提交（`GitRepo.MAX_COMMITS`）
 
 ## 运行
@@ -45,7 +46,8 @@ Kotlin + Compose Desktop + JGit 写的 git 可视化客户端，还在开发中�
 | `Components.kt` | 图标、按钮、头像这些通用组件 |
 | `CommitList.kt` | 提交列表 |
 | `CommitDetail.kt` | 提交详情、diff、文件历史、Blame |
-| `GitCli.kt` | 调用系统 git 做拉取和推送，判断失败原因 |
+| `GitCli.kt` | 调用系统 git：拉取、推送、工作区状态、暂存、提交 |
+| `ChangesView.kt` | 本地改动和提交说明 |
 | `NetBanner.kt` | 拉取、推送的进度和失败提示 |
 | `Main.kt` | 窗口、工具栏、状态栏 |
 
