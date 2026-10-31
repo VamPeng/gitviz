@@ -22,6 +22,13 @@ Kotlin + Compose Desktop + JGit 写的 git 可视化客户端，目前是第一�
 
 或者用 IntelliJ IDEA 打开本目录，运行 `gitviz.MainKt`。
 
+调试写操作用练习仓库，不要用 gitviz 本身。脚本会生成带分支、合并冲突、储藏和未提交改动的仓库，`origin` 是本地裸仓库，推送不会碰到 GitHub，弄坏了重新跑一次就恢复：
+
+```bash
+./scripts/playground.sh
+./gradlew run --args="/tmp/gitviz-playground"
+```
+
 打包安装包：`./gradlew packageDistributionForCurrentOS`
 
 ## 结构
