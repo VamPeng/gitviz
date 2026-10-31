@@ -1,0 +1,168 @@
+package gitviz
+
+import org.eclipse.jgit.diff.DiffEntry
+import org.eclipse.jgit.diff.DiffFormatter
+import org.eclipse.jgit.diff.RawTextComparator
+import org.eclipse.jgit.lib.Constants
+import org.eclipse.jgit.lib.ObjectId
+import org.eclipse.jgit.lib.Repository
+import org.eclipse.jgit.revwalk.RevCommit
+import org.eclipse.jgit.revwalk.RevSort
+import org.eclipse.jgit.revwalk.RevTree
+import org.eclipse.jgit.revwalk.RevWalk
+import org.eclipse.jgit.storage.file.FileRepositoryBuilder
+import org.eclipse.jgit.util.io.DisabledOutputStream
+import java.io.ByteArrayOutputStream
+import java.io.File
+
+enum class RefKind { HEAD, BRANCH, REMOTE, TAG }
+
+data class RefLabel(val name: String, val kind: RefKind, val isCurrent: Boolean = false)
+
+data class CommitInfo(
+    val id: String,
+    val parents: List<String>,
+    val shortMessage: String,
+    val fullMessage: String,
+    val author: String,
+    val email: String,
+    val timeSeconds: Long,
+    val refs: List<RefLabel>,
+) {
+    val shortId: String get() = id.take(8)
+}
+
+data class FileChange(
+    val type: DiffEntry.ChangeType,
+    val oldPath: String,
+    val newPath: String,
+    internal val entry: DiffEntry,
+) {
+    val displayPath: String
+        get() = when (type) {
+            DiffEntry.ChangeType.DELETE -> oldPath
+            DiffEntry.ChangeType.RENAME, DiffEntry.ChangeType.COPY -> "$oldPath → $newPath"
+            else -> newPath
+        }
+}
+
+data class LoadResult(
+    val commits: List<CommitInfo>,
+    val truncated: Boolean,
+    val currentBranch: String?,
+)
+
+/** 只读访问一个本地仓库。所有方法都会阻塞，请在 IO 线程调用。 */
+class GitRepo private constructor(val repository: Repository) : AutoCloseable {
+
+    val workTree: File? get() = if (repository.isBare) null else repository.workTree
+    val displayName: String get() = workTree?.name ?: repository.directory.name
+
+    fun loadCommits(limit: Int = MAX_COMMITS): LoadResult {
+        val labels = collectRefLabels()
+        val result = ArrayList<CommitInfo>()
+        var truncated = false
+
+        RevWalk(repository).use { walk ->
+            // 不用 RevSort.TOPO：它会先读完整个历史才输出第一个提交，limit 就白设了
+            walk.sort(RevSort.COMMIT_TIME_DESC, true)
+
+            // 只走分支和标签，notes、stash 这类内部引用不算提交历史
+            val starts = repository.refDatabase
+                .getRefsByPrefix(Constants.R_HEADS, Constants.R_REMOTES, Constants.R_TAGS)
+                .mapNotNull { it.objectId } + listOfNotNull(repository.resolve(Constants.HEAD))
+            for (id in starts.distinct()) {
+                val commit = runCatching { walk.peel(walk.parseAny(id)) as? RevCommit }.getOrNull()
+                if (commit != null) walk.markStart(commit)
+            }
+
+            for (c in walk) {
+                if (result.size >= limit) { truncated = true; break }
+                result += c.toInfo(labels[c.name].orEmpty())
+            }
+        }
+        return LoadResult(GraphLayout.topoSort(result), truncated, repository.branch)
+    }
+
+    fun changes(commitId: String): List<FileChange> {
+        RevWalk(repository).use { walk ->
+            val commit = walk.parseCommit(ObjectId.fromString(commitId))
+            val oldTree: RevTree? = if (commit.parentCount > 0) walk.parseCommit(commit.getParent(0)).tree else null
+            DiffFormatter(DisabledOutputStream.INSTANCE).use { df ->
+                df.setRepository(repository)
+                df.setDiffComparator(RawTextComparator.DEFAULT)
+                df.isDetectRenames = true
+                return df.scan(oldTree, commit.tree).map {
+                    FileChange(it.changeType, it.oldPath, it.newPath, it)
+                }
+            }
+        }
+    }
+
+    fun diffText(change: FileChange): String {
+        val out = ByteArrayOutputStream()
+        DiffFormatter(out).use { df ->
+            df.setRepository(repository)
+            df.setDiffComparator(RawTextComparator.DEFAULT)
+            df.format(change.entry)
+        }
+        val text = out.toString(Charsets.UTF_8)
+        return if (text.length > MAX_DIFF_CHARS) {
+            text.take(MAX_DIFF_CHARS) + "\n\n… diff 过大，已截断（${text.length} 字符）"
+        } else text
+    }
+
+    private fun collectRefLabels(): Map<String, List<RefLabel>> {
+        val map = HashMap<String, MutableList<RefLabel>>()
+        val current = repository.fullBranch // 分离 HEAD 时是提交哈希
+        val detached = current != null && !current.startsWith(Constants.R_REFS)
+
+        for (ref in repository.refDatabase.refs) {
+            val name = ref.name
+            val label = when {
+                name.startsWith(Constants.R_HEADS) ->
+                    RefLabel(name.removePrefix(Constants.R_HEADS), RefKind.BRANCH, isCurrent = name == current)
+                name.startsWith(Constants.R_REMOTES) ->
+                    if (name.endsWith("/HEAD")) null
+                    else RefLabel(name.removePrefix(Constants.R_REMOTES), RefKind.REMOTE)
+                name.startsWith(Constants.R_TAGS) ->
+                    RefLabel(name.removePrefix(Constants.R_TAGS), RefKind.TAG)
+                else -> null
+            } ?: continue
+            val peeled = repository.refDatabase.peel(ref)
+            val target = (peeled.peeledObjectId ?: peeled.objectId)?.name ?: continue
+            map.getOrPut(target) { mutableListOf() } += label
+        }
+        if (detached) {
+            repository.resolve(Constants.HEAD)?.let {
+                map.getOrPut(it.name) { mutableListOf() }.add(0, RefLabel("HEAD", RefKind.HEAD, isCurrent = true))
+            }
+        }
+        return map
+    }
+
+    private fun RevCommit.toInfo(refs: List<RefLabel>) = CommitInfo(
+        id = name,
+        parents = parents.map { it.name },
+        shortMessage = shortMessage,
+        fullMessage = fullMessage,
+        author = authorIdent.name,
+        email = authorIdent.emailAddress,
+        timeSeconds = commitTime.toLong(),
+        refs = refs.sortedBy { it.kind.ordinal },
+    )
+
+    override fun close() = repository.close()
+
+    companion object {
+        const val MAX_COMMITS = 5000
+        const val MAX_DIFF_CHARS = 1_000_000
+
+        /** 从给定目录向上查找 .git，找不到时抛异常。 */
+        fun open(dir: File): GitRepo {
+            val builder = FileRepositoryBuilder().readEnvironment().findGitDir(dir.absoluteFile)
+            require(builder.gitDir != null) { "不是 git 仓库：${dir.absolutePath}" }
+            return GitRepo(builder.setMustExist(true).build())
+        }
+    }
+}
