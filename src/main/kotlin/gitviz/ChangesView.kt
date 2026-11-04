@@ -53,7 +53,7 @@ internal fun ChangesView(
     fun apply(title: String, historyChanged: Boolean = false, op: GitCli.() -> GitResult, done: () -> Unit = {}) {
         scope.launch {
             val result = withContext(Dispatchers.IO) { cli.op() }
-            if (result.ok) done() else onFailure(title, result.output.lineSequence().lastOrNull { it.isNotBlank() }.orEmpty())
+            if (result.ok) done() else onFailure(title, errorSummary(result.output))
             onChanged(historyChanged)
             revision++
         }

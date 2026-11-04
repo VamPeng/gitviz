@@ -44,18 +44,21 @@ internal fun describe(op: NetOp, result: GitResult): NetStatus {
             NetStatus("连不上远程", "验证失败。检查 SSH 密钥和 ssh-agent，或访问令牌。", NetState.FAILED, op, "重试")
         GitFailure.CONFLICT ->
             NetStatus("拉取时有冲突", ConflictHint, NetState.FAILED, NetOp.ABORT, "放弃")
-        GitFailure.OTHER -> NetStatus("${op.running.removePrefix("正在")}失败", lastLine, NetState.FAILED, op, "重试")
+        GitFailure.NOT_MERGED, GitFailure.OTHER ->
+            NetStatus("${op.running.removePrefix("正在")}失败", errorSummary(result.output), NetState.FAILED, op, "重试")
     }
 }
 
 /** 分支、合并这些本地操作的结果。running 形如「正在合并」。 */
-internal fun describeAction(running: String, done: String, result: GitResult): NetStatus {
-    val lastLine = result.output.lineSequence().lastOrNull { it.isNotBlank() }.orEmpty()
-    return when (result.failure) {
-        null -> NetStatus(done, "", NetState.DONE)
-        GitFailure.CONFLICT -> NetStatus("有冲突", ConflictHint, NetState.FAILED, NetOp.ABORT, "放弃")
-        else -> NetStatus("${running.removePrefix("正在")}失败", lastLine, NetState.FAILED)
-    }
+internal fun describeAction(running: String, done: String, result: GitResult): NetStatus = when (result.failure) {
+    null -> NetStatus(done, "", NetState.DONE)
+    GitFailure.CONFLICT -> NetStatus("有冲突", ConflictHint, NetState.FAILED, NetOp.ABORT, "放弃")
+    GitFailure.NOT_MERGED -> NetStatus(
+        "没有删除",
+        "这个分支有还没合并到别处的提交，删除会丢掉它们。确定不要了，右键分支选「强制删除…」。",
+        NetState.FAILED,
+    )
+    else -> NetStatus("${running.removePrefix("正在")}失败", errorSummary(result.output), NetState.FAILED)
 }
 
 @Composable

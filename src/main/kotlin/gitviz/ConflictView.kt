@@ -49,7 +49,7 @@ internal fun ConflictView(
     fun apply(op: GitCli.() -> GitResult) {
         scope.launch {
             val result = withContext(Dispatchers.IO) { cli.op() }
-            if (!result.ok) onFailure("保存失败", result.output.lineSequence().lastOrNull { it.isNotBlank() }.orEmpty())
+            if (!result.ok) onFailure("保存失败", errorSummary(result.output))
             onChanged()
         }
     }

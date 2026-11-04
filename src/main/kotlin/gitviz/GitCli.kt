@@ -3,7 +3,7 @@ package gitviz
 import java.io.File
 import java.util.concurrent.TimeUnit
 
-enum class GitFailure { REJECTED, AUTH, CONFLICT, OTHER }
+enum class GitFailure { REJECTED, AUTH, CONFLICT, NOT_MERGED, OTHER }
 
 enum class ResetMode(val flag: String, val label: String, val hint: String) {
     SOFT("--soft", "软重置", "撤销提交，改动保留在暂存区"),
@@ -76,8 +76,22 @@ internal fun parseStatus(text: String): List<WorkingFile> {
     return files
 }
 
+/**
+ * 从 git 的输出里挑一行说明失败原因。git 常在 error: 后面再跟几行 hint:，
+ * 只取最后一行会拿到 “Disable this message with …” 这种和原因无关的提示。
+ * 优先取最后一条 error: 或 fatal:，没有的话取最后一行不是 hint: 的。
+ */
+internal fun errorSummary(output: String): String {
+    val lines = output.lines().map { it.trim() }.filter { it.isNotEmpty() }
+    lines.lastOrNull { it.startsWith("error:") || it.startsWith("fatal:") }?.let {
+        return it.removePrefix("error:").removePrefix("fatal:").trim()
+    }
+    return lines.lastOrNull { !it.startsWith("hint:") } ?: lines.lastOrNull().orEmpty()
+}
+
 /** 从 git 的输出判断失败原因，界面据此决定显示什么、提供什么操作。 */
 internal fun classifyFailure(output: String): GitFailure = when {
+    "is not fully merged" in output -> GitFailure.NOT_MERGED
     "CONFLICT" in output || "Automatic merge failed" in output || "after resolving the conflicts" in output -> GitFailure.CONFLICT
     "[rejected]" in output || "non-fast-forward" in output || "fetch first" in output -> GitFailure.REJECTED
     listOf(
@@ -147,8 +161,11 @@ class GitCli(private val workTree: File) {
 
     fun renameBranch(from: String, to: String): GitResult = run("branch", "-m", from, to)
 
-    /** 只删已合并的分支；没合并的 git 会拒绝，提交不会丢。 */
-    fun deleteBranch(name: String): GitResult = run("branch", "-d", name)
+    /**
+     * 默认只删已合并的分支，没合并的 git 会拒绝，提交不会丢。
+     * force 为 true 时用 -D 强制删，没合并的提交之后只能从 reflog 找回。
+     */
+    fun deleteBranch(name: String, force: Boolean = false): GitResult = run("branch", if (force) "-D" else "-d", name)
 
     fun tag(name: String, commitId: String): GitResult = run("tag", name, commitId)
 

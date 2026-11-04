@@ -127,6 +127,15 @@ internal fun branchMenu(name: String, isCurrent: Boolean, target: String?, a: Gi
             a.run("正在删除", "已删除分支 $name") { deleteBranch(name) }
         })
     },
+    MenuItem("强制删除…", enabled = !isCurrent, danger = true) {
+        a.ask(DialogSpec(
+            "强制删除分支",
+            "删除本地分支 $name，即使它有还没合并的提交。这些提交之后只能从 reflog 找回。",
+            "强制删除", danger = true,
+        ) { _, _ ->
+            a.run("正在删除", "已删除分支 $name") { deleteBranch(name, force = true) }
+        })
+    },
 )
 
 internal fun repoMenu(

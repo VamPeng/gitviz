@@ -290,7 +290,25 @@ class GitCliTest {
         git(work, "checkout", "-q", "main")
         val result = cli.deleteBranch("wip")
         assertFalse(result.ok)
+        assertEquals(GitFailure.NOT_MERGED, result.failure)
+        assertEquals("没有删除", describeAction("正在删除", "已删除", result).title)
         assertTrue("wip" in git(work, "branch"))
+
+        assertTrue(cli.deleteBranch("wip", force = true).ok)
+        assertFalse("wip" in git(work, "branch"))
+    }
+
+    @Test
+    fun `error summary skips trailing hints`() {
+        val output = """
+            error: the branch 'wip' is not fully merged
+            hint: If you are sure you want to delete it, run 'git branch -D wip'
+            hint: Disable this message with "git config set advice.forceDeleteBranch false"
+        """.trimIndent()
+        assertEquals("the branch 'wip' is not fully merged", errorSummary(output))
+        assertEquals("x", errorSummary("fatal: x\nhint: y"))
+        assertEquals("plain line", errorSummary("plain line\nhint: y"))
+        assertEquals("hint: only", errorSummary("hint: only"))
     }
 
     @Test
