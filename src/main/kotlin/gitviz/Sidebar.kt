@@ -43,6 +43,9 @@ fun RefSidebar(
     modifier: Modifier,
     onBranchOpen: (RefTarget) -> Unit = {},
     onBranchMenu: (RefTarget) -> Unit = {},
+    stashes: List<StashEntry> = emptyList(),
+    onStash: (StashEntry) -> Unit = {},
+    onStashOpen: (StashEntry) -> Unit = {},
 ) {
     var collapsed by remember { mutableStateOf(setOf("${RefKind.TAG}:")) } // 标签通常很多，默认收起
     val filtering = filter.isNotBlank()
@@ -83,6 +86,17 @@ fun RefSidebar(
                                 )
                         }
                     }
+                }
+            }
+            val shownStashes = if (filtering) stashes.filter { it.message.contains(filter.trim(), ignoreCase = true) } else stashes
+            val stashKey = "${RefKind.STASH}:"
+            val stashExpanded = filtering || stashKey !in collapsed
+            item(key = stashKey) {
+                SectionHeader("储藏", shownStashes.size, stashExpanded, onClick = { toggle(stashKey) })
+            }
+            if (stashExpanded) {
+                items(shownStashes, key = { stashKey + it.id }) { entry ->
+                    StashLeafRow(entry, entry.id == selectedId, onClick = { onStash(entry) }, onOpen = { onStashOpen(entry) })
                 }
             }
         }
@@ -144,6 +158,25 @@ private fun RefLeafRow(
             fontWeight = if (current) FontWeight.SemiBold else FontWeight.Normal,
             color = if (current) Palette.AccentInk else colors.onSurface,
         )
+    }
+}
+
+/** 储藏：单击在图上找到它，双击打开储藏页。 */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun StashLeafRow(entry: StashEntry, selected: Boolean, onClick: () -> Unit, onOpen: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().height(25.dp)
+            .rowHighlight(selected)
+            .combinedClickable(onClick = onClick, onDoubleClick = onOpen)
+            .indented(0),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Spacer(Modifier.width(8.dp))
+        Text(entry.message.ifBlank { entry.ref }, fontSize = TypeScale.Body, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f, fill = false))
+        Text(entry.ref.removePrefix("stash"), fontSize = TypeScale.Caption, color = Palette.Faint, maxLines = 1)
     }
 }
 

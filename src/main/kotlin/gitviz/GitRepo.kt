@@ -12,11 +12,14 @@ import org.eclipse.jgit.revwalk.RevSort
 import org.eclipse.jgit.revwalk.RevTree
 import org.eclipse.jgit.revwalk.RevWalk
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder
+import org.eclipse.jgit.treewalk.filter.AndTreeFilter
+import org.eclipse.jgit.treewalk.filter.PathFilter
+import org.eclipse.jgit.treewalk.filter.TreeFilter
 import org.eclipse.jgit.util.io.DisabledOutputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
 
-enum class RefKind { HEAD, BRANCH, REMOTE, TAG }
+enum class RefKind { HEAD, BRANCH, REMOTE, TAG, STASH }
 
 data class RefLabel(val name: String, val kind: RefKind, val isCurrent: Boolean = false)
 
@@ -41,6 +44,9 @@ data class CommitInfo(
     val commitTimeSeconds: Long = timeSeconds,
 ) {
     val shortId: String get() = id.take(8)
+
+    /** 储藏不是真正的提交历史：不能 checkout、cherry-pick，只在图上标出它基于哪个提交。 */
+    val isStash: Boolean get() = refs.any { it.kind == RefKind.STASH }
 
     /** 提交者或提交时间和作者不同，详情里要单独显示一行。 */
     val committedSeparately: Boolean
@@ -108,8 +114,10 @@ internal fun matchesQuery(q: String, shortMessage: String, author: String, id: S
  *
  * 不是线程安全的，同一时间只能有一个线程调用。
  */
-class CommitPager internal constructor(private val repo: GitRepo) : AutoCloseable {
-    private val walk = repo.newHistoryWalk()
+class CommitPager internal constructor(private val repo: GitRepo, val path: String? = null) : AutoCloseable {
+    private val walk = repo.newHistoryWalk(path)
+    // 只看某个文件时，储藏和这个文件的历史无关
+    private val stashes = if (path == null) repo.stashCommits() else emptyList()
     private val labels = repo.collectRefLabels()
     private val refs = labels.flatMap { (id, list) -> list.filter { it.kind != RefKind.HEAD }.map { RefTarget(it, id) } }
     private val currentBranch = repo.repository.branch
@@ -135,13 +143,17 @@ class CommitPager internal constructor(private val repo: GitRepo) : AutoCloseabl
         }
         // 刚好读满一页时还不知道后面有没有，先看一眼下一个，留到下一页
         if (pending == null && !exhausted) pending = walk.next().also { if (it == null) exhausted = true }
-        return LoadResult(GraphLayout.topoSort(walkOrder), pending != null, currentBranch, refs)
+        // 储藏所基于的提交加载了，它才挂得上去
+        val loaded = walkOrder.mapTo(HashSet()) { it.id }
+        val commits = insertByTime(walkOrder, stashes.filter { it.parents.firstOrNull() in loaded })
+        return LoadResult(GraphLayout.topoSort(commits), pending != null, currentBranch, refs)
     }
 
     override fun close() {
         if (closed) return
         closed = true
         walk.close()
+        repo.forget(this)
     }
 }
 
@@ -153,15 +165,23 @@ class GitRepo private constructor(val repository: Repository) : AutoCloseable {
 
     private val pagers = ArrayList<CommitPager>()
 
-    /** 一页一页读提交历史，用完随仓库一起关闭。 */
-    fun openHistory(): CommitPager = synchronized(pagers) { CommitPager(this).also { pagers += it } }
+    /**
+     * 一页一页读提交历史，用完随仓库一起关闭。
+     * path 不为空时只读改动过这个文件的提交，父提交会改写成过滤后历史里最近的祖先，图才连得上。
+     */
+    fun openHistory(path: String? = null): CommitPager =
+        synchronized(pagers) { CommitPager(this, path).also { pagers += it } }
+
+    internal fun forget(pager: CommitPager) = synchronized(pagers) { pagers.remove(pager) }
 
     /** 一次读最多 limit 个提交。 */
     fun loadCommits(limit: Int = PAGE_SIZE): LoadResult = CommitPager(this).use { it.load(limit) }
 
     /** 从所有分支、远程分支、标签和 HEAD 出发往回走，notes、stash 这类内部引用不算提交历史。 */
-    internal fun newHistoryWalk(): RevWalk {
+    internal fun newHistoryWalk(path: String? = null): RevWalk {
         val walk = RevWalk(repository)
+        // 和 git log -- path 一样：只留改动过它的提交，并改写父提交。注意 JGit 改写父提交要先读完整个历史
+        if (path != null) walk.setTreeFilter(AndTreeFilter.create(PathFilter.create(path), TreeFilter.ANY_DIFF))
         // 不用 RevSort.TOPO：它会先读完整个历史才输出第一个提交，没法分页
         walk.sort(RevSort.COMMIT_TIME_DESC, true)
         val starts = repository.refDatabase
@@ -178,12 +198,17 @@ class GitRepo private constructor(val repository: Repository) : AutoCloseable {
      * 在全部历史里找匹配 query 的提交，返回 id，新的在前。规则和 [filterCommits] 一样。
      * 最多返回 limit 个；cancelled 返回 true 时尽快停下，返回已找到的。
      */
-    fun searchCommits(query: String, limit: Int = MAX_SEARCH_RESULTS, cancelled: () -> Boolean = { false }): SearchResult {
+    fun searchCommits(
+        query: String,
+        limit: Int = MAX_SEARCH_RESULTS,
+        path: String? = null,
+        cancelled: () -> Boolean = { false },
+    ): SearchResult {
         val q = query.trim()
         if (q.isEmpty()) return SearchResult(emptyList(), complete = true)
         val refNames = collectRefLabels().mapValues { (_, labels) -> labels.map { it.name } }
         val ids = ArrayList<String>()
-        newHistoryWalk().use { walk ->
+        newHistoryWalk(path).use { walk ->
             while (true) {
                 if (cancelled() || ids.size >= limit) return SearchResult(ids, complete = false)
                 val c = walk.next() ?: break
@@ -242,6 +267,19 @@ class GitRepo private constructor(val repository: Repository) : AutoCloseable {
         } else text
     }
 
+    /**
+     * 储藏，最新的在前。储藏提交的第二、三个父提交是暂存区和未跟踪文件，只是 git 的实现细节，
+     * 这里只留第一个父提交，也就是储藏时所在的提交。
+     */
+    internal fun stashCommits(): List<CommitInfo> = runCatching {
+        Git(repository).stashList().call().mapIndexed { i, c ->
+            // 说明形如 “WIP on main: abc1234 消息” 或 “On main: 消息”，去掉前缀
+            val message = c.shortMessage.substringAfter(": ", c.shortMessage)
+            c.toInfo(listOf(RefLabel("stash@{$i}", RefKind.STASH)))
+                .copy(parents = listOfNotNull(c.parents.firstOrNull()?.name), shortMessage = message)
+        }
+    }.getOrDefault(emptyList())
+
     internal fun collectRefLabels(): Map<String, List<RefLabel>> {
         val map = HashMap<String, MutableList<RefLabel>>()
         val current = repository.fullBranch // 分离 HEAD 时是提交哈希
@@ -286,7 +324,7 @@ class GitRepo private constructor(val repository: Repository) : AutoCloseable {
     )
 
     override fun close() {
-        synchronized(pagers) { pagers.forEach { it.close() } }
+        synchronized(pagers) { pagers.toList().forEach { it.close() } }
         repository.close()
     }
 
@@ -304,4 +342,21 @@ class GitRepo private constructor(val repository: Repository) : AutoCloseable {
             return GitRepo(builder.setMustExist(true).build())
         }
     }
+}
+
+/**
+ * 把 extras 按提交时间插进 commits：放在第一个比它旧的提交前面，commits 自己的顺序不变。
+ * 储藏一定比它基于的提交新，插完再排拓扑序，就会落在那个提交上方。
+ */
+internal fun insertByTime(commits: List<CommitInfo>, extras: List<CommitInfo>): List<CommitInfo> {
+    if (extras.isEmpty()) return commits
+    val pending = extras.sortedByDescending { it.commitTimeSeconds }
+    val result = ArrayList<CommitInfo>(commits.size + extras.size)
+    var next = 0
+    for (c in commits) {
+        while (next < pending.size && pending[next].commitTimeSeconds >= c.commitTimeSeconds) result += pending[next++]
+        result += c
+    }
+    while (next < pending.size) result += pending[next++]
+    return result
 }

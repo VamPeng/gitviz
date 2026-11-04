@@ -47,7 +47,13 @@ private val NumberColumn = 40.dp
 private val BlameColumn = 176.dp
 
 @Composable
-internal fun CommitDetail(repo: GitRepo, commit: CommitInfo?, onOpenCommit: (String) -> Unit, modifier: Modifier) {
+internal fun CommitDetail(
+    repo: GitRepo,
+    commit: CommitInfo?,
+    onOpenCommit: (String) -> Unit,
+    modifier: Modifier,
+    onShowFileHistory: (String) -> Unit = {},
+) {
     if (commit == null) {
         Box(modifier, contentAlignment = Alignment.Center) { Text("选择一个提交") }
         return
@@ -77,7 +83,7 @@ internal fun CommitDetail(repo: GitRepo, commit: CommitInfo?, onOpenCommit: (Str
             VerticalDivider()
             val file = selectedFile
             if (file != null) {
-                FilePane(repo, commit, file, tab, { tab = it }, mode, { mode = it }, onOpenCommit,
+                FilePane(repo, commit, file, tab, { tab = it }, mode, { mode = it }, onOpenCommit, onShowFileHistory,
                     Modifier.weight(1f).fillMaxHeight().background(Palette.Panel))
             } else {
                 Spacer(Modifier.weight(1f))
@@ -252,6 +258,7 @@ private fun FilePane(
     mode: DiffMode,
     onMode: (DiffMode) -> Unit,
     onOpenCommit: (String) -> Unit,
+    onShowFileHistory: (String) -> Unit,
     modifier: Modifier,
 ) {
     Column(modifier) {
@@ -271,7 +278,7 @@ private fun FilePane(
         val content = Modifier.fillMaxWidth().weight(1f)
         when (tab) {
             FileTab.Diff -> DiffContent(repo, file, mode, content)
-            FileTab.History -> HistoryContent(repo, commit, file, onOpenCommit, content)
+            FileTab.History -> HistoryContent(repo, commit, file, onOpenCommit, onShowFileHistory, content)
             FileTab.Blame -> BlameContent(repo, commit, file, onOpenCommit, content)
         }
     }
@@ -412,7 +419,14 @@ private fun SplitCell(line: DiffLine?, left: Boolean, modifier: Modifier) {
 }
 
 @Composable
-private fun HistoryContent(repo: GitRepo, commit: CommitInfo, file: FileChange, onOpenCommit: (String) -> Unit, modifier: Modifier) {
+private fun HistoryContent(
+    repo: GitRepo,
+    commit: CommitInfo,
+    file: FileChange,
+    onOpenCommit: (String) -> Unit,
+    onShowFileHistory: (String) -> Unit,
+    modifier: Modifier,
+) {
     Loaded(file to commit.id, modifier, { repo.fileHistory(commit.id, file.path) }) { history ->
         if (history.isEmpty()) {
             Message("这个提交里没有这个文件的历史", modifier)
@@ -422,6 +436,11 @@ private fun HistoryContent(repo: GitRepo, commit: CommitInfo, file: FileChange, 
         val now = rememberNowSeconds()
         Box(modifier) {
             LazyColumn(Modifier.fillMaxSize(), state = listState) {
+                item(key = "show-in-graph") {
+                    Text("在主图中只看这个文件", fontSize = TypeScale.Small, color = Palette.Link,
+                        modifier = Modifier.clickable { onShowFileHistory(file.path) }.padding(horizontal = 14.dp, vertical = 8.dp))
+                    HorizontalDivider()
+                }
                 items(history, key = { it.id }) { c ->
                     Row(
                         Modifier.fillMaxWidth().height(32.dp).hoverRow().rowHighlight(c.id == commit.id)

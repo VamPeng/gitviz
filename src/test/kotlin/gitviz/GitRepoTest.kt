@@ -45,12 +45,55 @@ class GitRepoTest {
     }
 
     @Test
-    fun `stash does not show up as commits`() {
-        commit("one", "a")
+    fun `stash shows up once above the commit it was made on`() {
+        val base = commit("one", "a")
         File(dir, "a").writeText("dirty")
+        git.stashCreate().setWorkingDirectoryMessage("half done").call()
+
+        val commits = load().commits
+        // 只有储藏本身，没有 git 内部用来存暂存区的那个提交
+        assertEquals(listOf("half done", "one"), commits.map { it.shortMessage })
+        val stash = commits.first()
+        assertTrue(stash.isStash)
+        assertEquals(listOf(base.name), stash.parents)
+        assertEquals(listOf("stash@{0}"), stash.refs.map { it.name })
+    }
+
+    @Test
+    fun `stash waits until the commit it was made on is loaded`() {
+        val old = commit("old", "a", 1_700_000_000)
+        commit("new1", "b", 1_700_000_100)
+        commit("new2", "b", 1_700_000_200)
+        git.checkout().setName(old.name).call()
+        File(dir, "a").writeText("dirty")
+        git.stashCreate().setWorkingDirectoryMessage("on old").call()
+        git.checkout().setName("main").call()
+
+        GitRepo.open(dir).use { repo ->
+            val pager = repo.openHistory()
+            assertTrue(pager.load(2).commits.none { it.isStash })
+            val all = pager.load(10).commits.map { it.shortMessage }
+            assertTrue("on old" in all)
+            assertTrue(all.indexOf("on old") < all.indexOf("old"))
+        }
+    }
+
+    @Test
+    fun `path history keeps only commits touching the file and links them`() {
+        val a1 = commit("a1", "a", 1_700_000_000)
+        commit("b1", "b", 1_700_000_100)
+        val a2 = commit("a2", "a", 1_700_000_200)
+        commit("b2", "b", 1_700_000_300)
+        File(dir, "b").writeText("dirty")
         git.stashCreate().call()
 
-        assertEquals(listOf("one"), load().commits.map { it.shortMessage })
+        GitRepo.open(dir).use { repo ->
+            val result = repo.openHistory("a").load(GitRepo.PAGE_SIZE)
+            assertEquals(listOf("a2", "a1"), result.commits.map { it.shortMessage })
+            // 父提交改写成过滤后历史里的祖先，跳过了 b1
+            assertEquals(listOf(a1.name), result.commits.first().parents)
+            assertEquals(listOf(a2.name), repo.searchCommits("2", path = "a").ids)
+        }
     }
 
     @Test

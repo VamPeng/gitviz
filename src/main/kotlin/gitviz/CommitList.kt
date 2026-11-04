@@ -185,7 +185,7 @@ private fun CommitRow(
             .padding(start = 12.dp, end = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        GraphCell(row, lanesShown, isHead)
+        GraphCell(row, lanesShown, isHead, isStash = c.isStash)
         Spacer(Modifier.width(10.dp))
         c.refs.take(MAX_VISIBLE_REFS).forEach { RefChip(it, laneColor(row.node)) }
         if (c.refs.size > MAX_VISIBLE_REFS) {
@@ -195,6 +195,7 @@ private fun CommitRow(
         Text(
             c.shortMessage, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = TypeScale.Body,
             fontWeight = if (isHead) FontWeight.SemiBold else FontWeight.Normal, modifier = Modifier.weight(1f),
+            color = if (c.isStash) Palette.Muted else Color.Unspecified,
         )
         Row(
             Modifier.width(AuthorColumn).padding(start = 8.dp),
@@ -216,6 +217,7 @@ private fun RefChip(ref: RefLabel, lane: Color) {
     val modifier = Modifier.padding(end = 6.dp)
     when {
         ref.kind == RefKind.HEAD -> Chip(ref.name, Palette.Ink, Palette.Rail, modifier, bold = true)
+        ref.kind == RefKind.STASH -> Chip(ref.name, Color.Transparent, Palette.Muted, modifier, outline = Palette.Line)
         ref.kind == RefKind.TAG -> Chip(ref.name, Color.Transparent, Palette.Muted, modifier, outline = Palette.Faint)
         ref.kind == RefKind.REMOTE -> Chip(ref.name, Color.Transparent, lane, modifier, outline = lane)
         ref.isCurrent -> Chip(ref.name, Palette.Accent, Palette.OnAccent, modifier, bold = true)

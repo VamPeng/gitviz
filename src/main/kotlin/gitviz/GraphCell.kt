@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -20,7 +21,7 @@ val LaneWidth: Dp = 14.dp
 const val MIN_VISIBLE_LANES = 10
 
 @Composable
-fun GraphCell(row: GraphRow, lanesShown: Int, isHeadCommit: Boolean, modifier: Modifier = Modifier) {
+fun GraphCell(row: GraphRow, lanesShown: Int, isHeadCommit: Boolean, modifier: Modifier = Modifier, isStash: Boolean = false) {
     Canvas(modifier.width(LaneWidth * lanesShown).fillMaxHeight()) {
         val w = LaneWidth.toPx()
         val h = size.height
@@ -49,7 +50,14 @@ fun GraphCell(row: GraphRow, lanesShown: Int, isHeadCommit: Boolean, modifier: M
             for (k in 0..2) drawCircle(Palette.Faint, 1.2.dp.toPx(), Offset(edge, mid + (k - 1) * 4.dp.toPx()))
         }
 
-        if (row.node < lanesShown) {
+        if (row.node < lanesShown && isStash) {
+            // 储藏不是真正的提交，画成空心方块，和圆形的站点区分开
+            val half = 4.dp.toPx()
+            val topLeft = Offset(x(row.node) - half, mid - half)
+            val box = Size(half * 2, half * 2)
+            drawRect(Palette.Node, topLeft, box)
+            drawRect(laneColor(row.node), topLeft, box, style = Stroke(1.5.dp.toPx()))
+        } else if (row.node < lanesShown) {
             val center = Offset(x(row.node), mid)
             // 提交是站点；HEAD 是更大的换乘站
             val r = (if (isHeadCommit) 6.dp else 4.5.dp).toPx()

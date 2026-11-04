@@ -23,6 +23,7 @@ class ScreenshotTest {
         val repo = GitRepo.open(File(System.getenv("GITVIZ_SCREENSHOT_REPO") ?: "."))
         val result = repo.loadCommits()
         val state = RepoState(repo, result, GraphLayout.compute(result.commits), repo.repository.resolve("HEAD")?.name)
+        val stashes = repo.workTree?.let { GitCli(it).stashList() }.orEmpty()
         val scene = ImageComposeScene(1360 * 2, 860 * 2, Density(2f)) {
             GitVizTheme {
                 Surface(Modifier.fillMaxSize(), color = Palette.Ground, contentColor = Palette.Ink) {
@@ -30,7 +31,7 @@ class ScreenshotTest {
                     Row(Modifier.fillMaxSize()) {
                         Column(Modifier.width(248.dp).fillMaxHeight().background(Palette.Rail)) {
                             Spacer(Modifier.height(TitleBarHeight))
-                            RefSidebar(result.refs, "", selected?.id, {}, Modifier.fillMaxWidth().weight(1f))
+                            RefSidebar(result.refs, "", selected?.id, {}, Modifier.fillMaxWidth().weight(1f), stashes = stashes)
                             HorizontalDivider()
                             Row(Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
                                 IconButton(if (Palette.isDark) Icons.Sun else Icons.Moon) {}

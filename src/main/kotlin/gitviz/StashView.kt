@@ -29,8 +29,14 @@ internal fun askStash(count: Int, a: GitActions) {
 
 /** 储藏：左边是列表，右边是所选储藏的文件和 diff。 */
 @Composable
-internal fun StashView(cli: GitCli, stashes: List<StashEntry>, actions: GitActions, modifier: Modifier) {
-    var selectedId by remember(cli) { mutableStateOf<String?>(null) }
+internal fun StashView(
+    cli: GitCli,
+    stashes: List<StashEntry>,
+    actions: GitActions,
+    modifier: Modifier,
+    selectedId: String? = null,
+    onSelect: (String) -> Unit = {},
+) {
     val current = stashes.firstOrNull { it.id == selectedId } ?: stashes.firstOrNull()
 
     Row(modifier) {
@@ -44,7 +50,7 @@ internal fun StashView(cli: GitCli, stashes: List<StashEntry>, actions: GitActio
                     modifier = Modifier.padding(16.dp))
             }
             LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
-                items(stashes, key = { it.id }) { entry -> StashRow(entry, entry == current) { selectedId = entry.id } }
+                items(stashes, key = { it.id }) { entry -> StashRow(entry, entry == current) { onSelect(entry.id) } }
             }
         }
         VerticalDivider()

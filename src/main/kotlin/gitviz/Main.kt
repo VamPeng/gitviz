@@ -114,6 +114,8 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
     var seeking by remember { mutableStateOf<Seek?>(null) }
     // 列表要滚到的提交。等列表按新数据重组后再滚，下标才对得上
     var scrollTarget by remember { mutableStateOf<String?>(null) }
+    // 储藏页选中的储藏，侧边栏和图上的储藏都能把它带过去
+    var stashSelected by remember { mutableStateOf<String?>(null) }
 
     fun open(dir: File, quiet: Boolean = false) {
         scope.launch {
@@ -123,10 +125,10 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                 val newState = withContext(Dispatchers.IO) {
                     val repo = GitRepo.open(dir)
                     try {
-                        // 刷新同一个仓库时读回原来那么多，滚到的位置还在
-                        val keep = before?.takeIf { it.repo.repository.directory == repo.repository.directory }
-                            ?.result?.commits?.size ?: 0
-                        val history = repo.openHistory()
+                        // 刷新同一个仓库时读回原来那么多，滚到的位置还在；只看某个文件时继续只看它
+                        val same = before?.takeIf { it.repo.repository.directory == repo.repository.directory }
+                        val keep = same?.result?.commits?.size ?: 0
+                        val history = repo.openHistory(same?.history?.path)
                         val result = history.load(maxOf(GitRepo.PAGE_SIZE, keep))
                         RepoState(repo, result, GraphLayout.compute(result.commits), repo.repository.resolve("HEAD")?.name, history)
                     } catch (e: Throwable) {
@@ -241,14 +243,15 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
     // 已加载的提交即时过滤；同时在后台搜全部历史，看没加载的部分里还有多少匹配
     var search by remember { mutableStateOf<SearchResult?>(null) }
     val searchRepo = s?.repo
-    LaunchedEffect(searchRepo, query) {
+    val pathFilter = s?.history?.path
+    LaunchedEffect(searchRepo, query, pathFilter) {
         search = null
         val q = query.trim()
         if (searchRepo == null || q.isEmpty()) return@LaunchedEffect
         delay(300) // 打字时不要每个字都搜一遍
         val job = coroutineContext.job
         search = withContext(Dispatchers.IO) {
-            runCatching { searchRepo.searchCommits(q, cancelled = { !job.isActive }) }.getOrNull()
+            runCatching { searchRepo.searchCommits(q, path = pathFilter, cancelled = { !job.isActive }) }.getOrNull()
         }
     }
     val unloadedMatches = remember(search, s) { s?.let { st -> search?.ids?.filter { it !in st.indexById } } }
@@ -288,6 +291,41 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
         }
     }
 
+    /** 主图换成只看 path 的历史；path 为空时回到全部历史。选中的提交还在就继续选中它。 */
+    fun showHistoryOf(path: String?) {
+        if (state?.history?.path == path) return
+        seeking?.job?.cancel()
+        scope.launch {
+            loading = true
+            try {
+                historyLock.withLock {
+                    val now = state ?: return@withLock
+                    val next = withContext(Dispatchers.IO) {
+                        val pager = now.repo.openHistory(path)
+                        try {
+                            val result = pager.load(GitRepo.PAGE_SIZE)
+                            RepoState(now.repo, result, GraphLayout.compute(result.commits), now.headId, pager)
+                        } catch (e: Throwable) {
+                            pager.close()
+                            throw e
+                        }
+                    }
+                    now.history?.close()
+                    state = next
+                    val commits = next.result.commits
+                    selected = commits.firstOrNull { it.id == selected?.id } ?: commits.firstOrNull()
+                    scrollTarget = selected?.id
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                net = NetStatus("读取文件历史失败", e.message ?: e.toString(), NetState.FAILED)
+            } finally {
+                loading = false
+            }
+        }
+    }
+
     /** 选中并滚到 id；还没加载时先往下读，select 为 false 时只加载不选中。 */
     fun jumpTo(id: String, select: Boolean = true) {
         val current = s ?: return
@@ -302,7 +340,9 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                 val found = loadMore(target = id)
                 val now = state
                 if (!found || now == null) {
-                    net = NetStatus("找不到提交 ${id.take(7)}", "它不在任何分支、远程分支或标签的历史里", NetState.FAILED)
+                    val path = now?.history?.path
+                    val why = if (path != null) "当前只看 $path 的历史，这个提交没有改动它" else "它不在任何分支、远程分支或标签的历史里"
+                    net = NetStatus("找不到提交 ${id.take(7)}", why, NetState.FAILED)
                 } else if (select) {
                     now.indexById[id]?.let { selected = now.result.commits[it] }
                     scrollTarget = id
@@ -342,6 +382,15 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                     },
                     onBranchMenu = { ref ->
                         if (cli != null) menu = branchMenu(ref.label.name, ref.label.isCurrent, currentBranch, actions)
+                    },
+                    stashes = stashes,
+                    onStash = { entry ->
+                        view = MainView.HISTORY
+                        jumpTo(entry.id)
+                    },
+                    onStashOpen = { entry ->
+                        stashSelected = entry.id
+                        view = MainView.STASH
                     },
                     modifier = Modifier.fillMaxWidth().weight(1f),
                 )
@@ -395,7 +444,7 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                         modifier = Modifier.fillMaxWidth().weight(1f),
                     )
                 } else if (view == MainView.STASH && cli != null) {
-                    StashView(cli, stashes, actions, Modifier.fillMaxWidth().weight(1f))
+                    StashView(cli, stashes, actions, Modifier.fillMaxWidth().weight(1f), stashSelected, onSelect = { stashSelected = it })
                 } else if (view == MainView.CHANGES && cli != null) {
                     ChangesView(
                         cli, working.filterNot { it.conflicted }, s.result.currentBranch,
@@ -418,12 +467,22 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                         loadingMore -> "正在加载更早的提交…"
                         else -> null
                     }
+                    if (pathFilter != null) {
+                        PathFilterBar(pathFilter, s.result, onClear = { showHistoryOf(null) })
+                        HorizontalDivider()
+                    }
                     CommitList(
                         s, shown, selected, commitListState, onSelect = { selected = it },
                         Modifier.fillMaxWidth().weight(0.46f),
                         onMenu = { c ->
                             selected = c
-                            if (cli != null) menu = commitMenu(c, c.id == s.headId, currentBranch, actions)
+                            // 储藏不能 checkout、cherry-pick，右键直接去储藏页应用或删除
+                            if (c.isStash) {
+                                stashSelected = c.id
+                                view = MainView.STASH
+                            } else if (cli != null) {
+                                menu = commitMenu(c, c.id == s.headId, currentBranch, actions)
+                            }
                         },
                         // 搜索时不自动往下读，免得为了凑结果把整个历史读进来
                         onNearEnd = {
@@ -438,7 +497,8 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                     CommitDetail(
                         s.repo, selected,
                         onOpenCommit = { id -> jumpTo(id) },
-                        Modifier.fillMaxWidth().weight(0.54f),
+                        modifier = Modifier.fillMaxWidth().weight(0.54f),
+                        onShowFileHistory = { path -> showHistoryOf(path) },
                     )
                 }
                 HorizontalDivider()
@@ -457,6 +517,25 @@ internal fun filterCommits(commits: List<CommitInfo>, query: String): List<Int> 
     return commits.indices.filter { i ->
         val c = commits[i]
         matchesQuery(q, c.shortMessage, c.author, c.id, c.refs.map { it.name })
+    }
+}
+
+/** 主图只看一个文件时，列表上方的说明和“显示全部”。 */
+@Composable
+private fun PathFilterBar(path: String, result: LoadResult, onClear: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().height(28.dp).background(Palette.Accent.copy(alpha = 0.08f)).padding(horizontal = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text("只看", fontSize = TypeScale.Small, color = Palette.Muted)
+        Text(path, fontSize = TypeScale.Small, fontFamily = CodeFont, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false))
+        val count = result.commits.size
+        Text(if (result.truncated) "已加载 $count 个改动它的提交" else "$count 个改动它的提交", fontSize = TypeScale.Small,
+            color = Palette.Muted, maxLines = 1)
+        Spacer(Modifier.weight(1f))
+        Text("显示全部提交", fontSize = TypeScale.Small, color = Palette.Link, modifier = Modifier.clickable(onClick = onClear))
     }
 }
 
