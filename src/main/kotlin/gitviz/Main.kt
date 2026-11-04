@@ -43,7 +43,9 @@ import java.io.File
 import javax.swing.JFileChooser
 
 fun main(args: Array<String>) {
-    val initial = args.firstOrNull()?.let(::File) ?: File(System.getProperty("user.dir"))
+    val initial = args.firstOrNull()?.let(::File)
+        ?: Settings.recentRepos.firstOrNull()?.let(::File)
+        ?: File(System.getProperty("user.dir"))
     System.setProperty(
         "apple.awt.application.appearance",
         if (Palette.isDark) "NSAppearanceNameDarkAqua" else "NSAppearanceNameAqua",

@@ -129,12 +129,12 @@ fun <T> Segmented(options: List<Pair<T, String>>, selected: T, bordered: Boolean
 /** 作者头像：名字的前两个字母，颜色由名字决定，同一个人始终同色。 */
 @Composable
 fun Avatar(name: String) {
-    val initials = name.filter { it.isLetterOrDigit() }.take(2).uppercase()
+    val initials = name.firstOrNull { it.isLetterOrDigit() }?.uppercase() ?: "?"
     Box(
         Modifier.size(18.dp).background(laneColor(name.hashCode().and(0xFF)), CircleShape),
         contentAlignment = Alignment.Center,
     ) {
-        Text(initials, fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Palette.Node, maxLines = 1)
+        Text(initials, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Palette.Node, maxLines = 1)
     }
 }
 
