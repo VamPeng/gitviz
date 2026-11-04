@@ -33,13 +33,12 @@ import androidx.compose.ui.unit.dp
 
 private val Sections = listOf("本地分支" to RefKind.BRANCH, "远程" to RefKind.REMOTE, "标签" to RefKind.TAG)
 
-/** 左侧引用树。引用指向的提交没加载时（超出提交上限）显示为灰色，不能点。 */
+/** 左侧引用树。点引用跳到它指向的提交，提交还没加载时会先加载到它。 */
 @Composable
 fun RefSidebar(
     refs: List<RefTarget>,
     filter: String,
     selectedId: String?,
-    isLoaded: (String) -> Boolean,
     onSelect: (RefTarget) -> Unit,
     modifier: Modifier,
     onBranchOpen: (RefTarget) -> Unit = {},
@@ -78,7 +77,7 @@ fun RefSidebar(
                             FolderRow(row, !filtering && key in collapsed, onClick = { toggle(key) })
                         } else {
                             RefLeafRow(
-                                    row, ref, ref.commitId == selectedId, isLoaded(ref.commitId), onClick = { onSelect(ref) },
+                                    row, ref, ref.commitId == selectedId, onClick = { onSelect(ref) },
                                     onOpen = { if (ref.label.kind == RefKind.BRANCH) onBranchOpen(ref) },
                                     onMenu = { if (ref.label.kind == RefKind.BRANCH) onBranchMenu(ref) },
                                 )
@@ -122,7 +121,6 @@ private fun RefLeafRow(
     row: RefRow,
     ref: RefTarget,
     selected: Boolean,
-    loaded: Boolean,
     onClick: () -> Unit,
     onOpen: () -> Unit,
     onMenu: () -> Unit,
@@ -133,7 +131,7 @@ private fun RefLeafRow(
         Modifier.fillMaxWidth().height(25.dp)
             .onRightClick(onMenu)
             .rowHighlight(selected)
-            .combinedClickable(enabled = loaded, onClick = onClick, onDoubleClick = onOpen)
+            .combinedClickable(onClick = onClick, onDoubleClick = onOpen)
             .indented(row.depth),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -144,11 +142,7 @@ private fun RefLeafRow(
         Text(
             row.node.name, fontSize = TypeScale.Body, maxLines = 1, overflow = TextOverflow.Ellipsis,
             fontWeight = if (current) FontWeight.SemiBold else FontWeight.Normal,
-            color = when {
-                current -> Palette.AccentInk
-                loaded -> colors.onSurface
-                else -> Palette.Faint
-            },
+            color = if (current) Palette.AccentInk else colors.onSurface,
         )
     }
 }

@@ -84,6 +84,7 @@ data class BlameLine(
     val timeSeconds: Long,
 )
 
+/** commits 是拓扑序。truncated 表示历史还没读完，可以继续加载。 */
 data class LoadResult(
     val commits: List<CommitInfo>,
     val truncated: Boolean,
@@ -91,39 +92,105 @@ data class LoadResult(
     val refs: List<RefTarget>,
 )
 
+/** 全库搜索的结果。complete 为 false 表示中途停下（取消或到了上限），后面可能还有。 */
+data class SearchResult(val ids: List<String>, val complete: Boolean)
+
+/** 搜索说明、作者、哈希前缀和引用名，不区分大小写。q 已去掉首尾空白且不为空。 */
+internal fun matchesQuery(q: String, shortMessage: String, author: String, id: String, refNames: List<String>): Boolean =
+    shortMessage.contains(q, ignoreCase = true) || author.contains(q, ignoreCase = true) ||
+        id.startsWith(q, ignoreCase = true) || refNames.any { it.contains(q, ignoreCase = true) }
+
+/**
+ * 分页读提交历史：一直开着一个 RevWalk，每次接着往下读。
+ *
+ * 提交时间不准时，子提交可能比父提交晚读到，甚至落在下一页，所以每页都把已读的全部重新排拓扑序，
+ * 而不是只排新读的这一页。几万个提交重排一次是几十毫秒。
+ *
+ * 不是线程安全的，同一时间只能有一个线程调用。
+ */
+class CommitPager internal constructor(private val repo: GitRepo) : AutoCloseable {
+    private val walk = repo.newHistoryWalk()
+    private val labels = repo.collectRefLabels()
+    private val refs = labels.flatMap { (id, list) -> list.filter { it.kind != RefKind.HEAD }.map { RefTarget(it, id) } }
+    private val currentBranch = repo.repository.branch
+    private val walkOrder = ArrayList<CommitInfo>()
+    private var pending: RevCommit? = null
+    private var exhausted = false
+    private var closed = false
+
+    private fun next(): RevCommit? {
+        pending?.let { pending = null; return it }
+        if (exhausted) return null
+        return walk.next().also { if (it == null) exhausted = true }
+    }
+
+    val loadedCount: Int get() = walkOrder.size
+
+    /** 再读最多 count 个提交，返回到目前为止读到的全部。 */
+    fun load(count: Int): LoadResult {
+        check(!closed) { "仓库已关闭" }
+        repeat(count) {
+            val c = next() ?: return@repeat
+            with(repo) { walkOrder += c.toInfo(labels[c.name].orEmpty()) }
+        }
+        // 刚好读满一页时还不知道后面有没有，先看一眼下一个，留到下一页
+        if (pending == null && !exhausted) pending = walk.next().also { if (it == null) exhausted = true }
+        return LoadResult(GraphLayout.topoSort(walkOrder), pending != null, currentBranch, refs)
+    }
+
+    override fun close() {
+        if (closed) return
+        closed = true
+        walk.close()
+    }
+}
+
 /** 只读访问一个本地仓库。所有方法都会阻塞，请在 IO 线程调用。 */
 class GitRepo private constructor(val repository: Repository) : AutoCloseable {
 
     val workTree: File? get() = if (repository.isBare) null else repository.workTree
     val displayName: String get() = workTree?.name ?: repository.directory.name
 
-    fun loadCommits(limit: Int = MAX_COMMITS): LoadResult {
-        val labels = collectRefLabels()
-        val result = ArrayList<CommitInfo>()
-        var truncated = false
+    private val pagers = ArrayList<CommitPager>()
 
-        RevWalk(repository).use { walk ->
-            // 不用 RevSort.TOPO：它会先读完整个历史才输出第一个提交，limit 就白设了
-            walk.sort(RevSort.COMMIT_TIME_DESC, true)
+    /** 一页一页读提交历史，用完随仓库一起关闭。 */
+    fun openHistory(): CommitPager = synchronized(pagers) { CommitPager(this).also { pagers += it } }
 
-            // 只走分支和标签，notes、stash 这类内部引用不算提交历史
-            val starts = repository.refDatabase
-                .getRefsByPrefix(Constants.R_HEADS, Constants.R_REMOTES, Constants.R_TAGS)
-                .mapNotNull { it.objectId } + listOfNotNull(repository.resolve(Constants.HEAD))
-            for (id in starts.distinct()) {
-                val commit = runCatching { walk.peel(walk.parseAny(id)) as? RevCommit }.getOrNull()
-                if (commit != null) walk.markStart(commit)
-            }
+    /** 一次读最多 limit 个提交。 */
+    fun loadCommits(limit: Int = PAGE_SIZE): LoadResult = CommitPager(this).use { it.load(limit) }
 
-            for (c in walk) {
-                if (result.size >= limit) { truncated = true; break }
-                result += c.toInfo(labels[c.name].orEmpty())
+    /** 从所有分支、远程分支、标签和 HEAD 出发往回走，notes、stash 这类内部引用不算提交历史。 */
+    internal fun newHistoryWalk(): RevWalk {
+        val walk = RevWalk(repository)
+        // 不用 RevSort.TOPO：它会先读完整个历史才输出第一个提交，没法分页
+        walk.sort(RevSort.COMMIT_TIME_DESC, true)
+        val starts = repository.refDatabase
+            .getRefsByPrefix(Constants.R_HEADS, Constants.R_REMOTES, Constants.R_TAGS)
+            .mapNotNull { it.objectId } + listOfNotNull(repository.resolve(Constants.HEAD))
+        for (id in starts.distinct()) {
+            val commit = runCatching { walk.peel(walk.parseAny(id)) as? RevCommit }.getOrNull()
+            if (commit != null) walk.markStart(commit)
+        }
+        return walk
+    }
+
+    /**
+     * 在全部历史里找匹配 query 的提交，返回 id，新的在前。规则和 [filterCommits] 一样。
+     * 最多返回 limit 个；cancelled 返回 true 时尽快停下，返回已找到的。
+     */
+    fun searchCommits(query: String, limit: Int = MAX_SEARCH_RESULTS, cancelled: () -> Boolean = { false }): SearchResult {
+        val q = query.trim()
+        if (q.isEmpty()) return SearchResult(emptyList(), complete = true)
+        val refNames = collectRefLabels().mapValues { (_, labels) -> labels.map { it.name } }
+        val ids = ArrayList<String>()
+        newHistoryWalk().use { walk ->
+            while (true) {
+                if (cancelled() || ids.size >= limit) return SearchResult(ids, complete = false)
+                val c = walk.next() ?: break
+                if (matchesQuery(q, c.shortMessage, c.authorIdent.name, c.name, refNames[c.name].orEmpty())) ids += c.name
             }
         }
-        val refs = labels.flatMap { (id, list) ->
-            list.filter { it.kind != RefKind.HEAD }.map { RefTarget(it, id) }
-        }
-        return LoadResult(GraphLayout.topoSort(result), truncated, repository.branch, refs)
+        return SearchResult(ids, complete = true)
     }
 
     /** 和第 parentIndex 个父提交比较的改动。合并提交可以选和哪个父提交比；根提交和空树比。 */
@@ -175,7 +242,7 @@ class GitRepo private constructor(val repository: Repository) : AutoCloseable {
         } else text
     }
 
-    private fun collectRefLabels(): Map<String, List<RefLabel>> {
+    internal fun collectRefLabels(): Map<String, List<RefLabel>> {
         val map = HashMap<String, MutableList<RefLabel>>()
         val current = repository.fullBranch // 分离 HEAD 时是提交哈希
         val detached = current != null && !current.startsWith(Constants.R_REFS)
@@ -204,7 +271,7 @@ class GitRepo private constructor(val repository: Repository) : AutoCloseable {
         return map
     }
 
-    private fun RevCommit.toInfo(refs: List<RefLabel>) = CommitInfo(
+    internal fun RevCommit.toInfo(refs: List<RefLabel>) = CommitInfo(
         id = name,
         parents = parents.map { it.name },
         shortMessage = shortMessage,
@@ -218,10 +285,15 @@ class GitRepo private constructor(val repository: Repository) : AutoCloseable {
         commitTimeSeconds = commitTime.toLong(),
     )
 
-    override fun close() = repository.close()
+    override fun close() {
+        synchronized(pagers) { pagers.forEach { it.close() } }
+        repository.close()
+    }
 
     companion object {
-        const val MAX_COMMITS = 5000
+        /** 一页读多少个提交。 */
+        const val PAGE_SIZE = 2000
+        const val MAX_SEARCH_RESULTS = 5000
         const val MAX_DIFF_CHARS = 1_000_000
         const val MAX_FILE_HISTORY = 500
 

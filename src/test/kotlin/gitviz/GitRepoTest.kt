@@ -34,7 +34,7 @@ class GitRepoTest {
             .setAllowEmpty(true).setSign(false).call()
     }
 
-    private fun load(limit: Int = GitRepo.MAX_COMMITS) = GitRepo.open(dir).use { it.loadCommits(limit) }
+    private fun load(limit: Int = GitRepo.PAGE_SIZE) = GitRepo.open(dir).use { it.loadCommits(limit) }
 
     @Test
     fun `notes do not show up as commits`() {
@@ -177,6 +177,71 @@ class GitRepoTest {
             val change = repo.changes(chmod.name).single()
             assertEquals(ModeChange("100644", "100755"), change.modeChange)
             assertEquals("仅权限 100644 → 100755（加上可执行权限），内容没有变化", emptyDiffMessage(parseDiffLines(repo.diffText(change))))
+        }
+    }
+
+    @Test
+    fun `history loads page by page until it runs out`() {
+        repeat(5) { commit("c$it", "a", 1_700_000_000L + it) }
+
+        GitRepo.open(dir).use { repo ->
+            val pager = repo.openHistory()
+            val first = pager.load(2)
+            assertEquals(listOf("c4", "c3"), first.commits.map { it.shortMessage })
+            assertTrue(first.truncated)
+            assertEquals(listOf("c4", "c3", "c2", "c1"), pager.load(2).commits.map { it.shortMessage })
+            val last = pager.load(2)
+            assertEquals(5, last.commits.size)
+            assertFalse(last.truncated)
+            assertEquals(5, pager.load(2).commits.size)
+        }
+    }
+
+    @Test
+    fun `a page that ends exactly at the root is not truncated`() {
+        repeat(4) { commit("c$it", "a", 1_700_000_000L + it) }
+
+        GitRepo.open(dir).use { repo ->
+            val pager = repo.openHistory()
+            assertTrue(pager.load(2).truncated)
+            assertFalse(pager.load(2).truncated)
+        }
+    }
+
+    @Test
+    fun `skewed child read on a later page still sorts before its parent`() {
+        commit("root", "a", 1_700_000_000)
+        commit("old-clock-parent", "b", 1_700_009_000)
+        git.branchCreate().setName("side").call()
+        commit("skewed-child", "c", 1_700_000_100)
+        git.checkout().setName("side").call()
+        commit("side", "d", 1_700_000_200)
+        git.checkout().setName("main").call()
+
+        GitRepo.open(dir).use { repo ->
+            val pager = repo.openHistory()
+            var result = pager.load(1)
+            while (result.truncated) result = pager.load(1)
+            val messages = result.commits.map { it.shortMessage }
+            assertTrue(messages.indexOf("skewed-child") < messages.indexOf("old-clock-parent"))
+            assertTrue(messages.indexOf("side") < messages.indexOf("old-clock-parent"))
+            assertEquals("root", messages.last())
+        }
+    }
+
+    @Test
+    fun `search covers history that is not loaded yet`() {
+        val old = commit("Fix login bug", "a", 1_700_000_000)
+        repeat(3) { commit("c$it", "a", 1_700_000_100L + it) }
+        git.tag().setName("release-1").setObjectId(git.repository.parseCommit(old)).call()
+
+        GitRepo.open(dir).use { repo ->
+            assertEquals(listOf(old.name), repo.searchCommits("LOGIN").ids)
+            assertEquals(listOf(old.name), repo.searchCommits(old.name.take(6)).ids)
+            assertEquals(listOf(old.name), repo.searchCommits("release").ids)
+            assertTrue(repo.searchCommits("c").complete)
+            assertEquals(2, repo.searchCommits("c", limit = 2).let { assertFalse(it.complete); it.ids.size })
+            assertFalse(repo.searchCommits("c", cancelled = { true }).complete)
         }
     }
 }

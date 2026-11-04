@@ -29,9 +29,15 @@ import androidx.compose.ui.window.FrameWindowScope
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import javax.swing.JFileChooser
@@ -67,13 +73,22 @@ fun main(args: Array<String>) {
 
 private enum class MainView { HISTORY, CHANGES, STASH, CONFLICT, SETTINGS }
 
+/** 打开的仓库和已加载的那部分历史。不可变，每加载一页换一个新对象。 */
 internal class RepoState(
     val repo: GitRepo,
     val result: LoadResult,
     val rows: List<GraphRow>,
     val headId: String?,
+    val history: CommitPager? = null,
 ) {
     val indexById: Map<String, Int> = result.commits.withIndex().associate { (i, c) -> c.id to i }
+
+    /** 再读 count 个提交。会阻塞，在 IO 线程调用。 */
+    fun loadMore(count: Int): RepoState {
+        val pager = checkNotNull(history)
+        val next = pager.load(count)
+        return RepoState(repo, next, GraphLayout.compute(next.commits), headId, pager)
+    }
 }
 
 @Composable
@@ -92,23 +107,37 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
     var dialog by remember { mutableStateOf<DialogSpec?>(null) }
     var working by remember { mutableStateOf(emptyList<WorkingFile>()) }
     val commitListState = rememberLazyListState()
+    // 分页读历史和换仓库互斥，免得读到一半仓库被关掉
+    val historyLock = remember { Mutex() }
+    var loadingMore by remember { mutableStateOf(false) }
+    // 正在加载、要找到的提交；找到后选中它
+    var seeking by remember { mutableStateOf<Seek?>(null) }
+    // 列表要滚到的提交。等列表按新数据重组后再滚，下标才对得上
+    var scrollTarget by remember { mutableStateOf<String?>(null) }
 
     fun open(dir: File, quiet: Boolean = false) {
         scope.launch {
             loading = true; error = null
             try {
+                val before = state
                 val newState = withContext(Dispatchers.IO) {
                     val repo = GitRepo.open(dir)
                     try {
-                        val result = repo.loadCommits()
-                        RepoState(repo, result, GraphLayout.compute(result.commits), repo.repository.resolve("HEAD")?.name)
+                        // 刷新同一个仓库时读回原来那么多，滚到的位置还在
+                        val keep = before?.takeIf { it.repo.repository.directory == repo.repository.directory }
+                            ?.result?.commits?.size ?: 0
+                        val history = repo.openHistory()
+                        val result = history.load(maxOf(GitRepo.PAGE_SIZE, keep))
+                        RepoState(repo, result, GraphLayout.compute(result.commits), repo.repository.resolve("HEAD")?.name, history)
                     } catch (e: Throwable) {
                         repo.close()
                         throw e
                     }
                 }
-                state?.repo?.close()
-                state = newState
+                historyLock.withLock {
+                    state?.repo?.close()
+                    state = newState
+                }
                 newState.repo.workTree?.let { Settings.addRecentRepo(it.path) }
                 // 刷新时保持选中；提交不在了或换了仓库才回到第一个
                 val commits = newState.result.commits
@@ -209,11 +238,81 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
     val currentBranch = s?.result?.refs?.firstOrNull { it.label.kind == RefKind.BRANCH && it.label.isCurrent }?.label?.name
     val shown = remember(s, query) { s?.let { filterCommits(it.result.commits, query) }.orEmpty() }
 
-    fun selectCommit(index: Int) {
-        val current = s ?: return
-        selected = current.result.commits[index]
+    // 已加载的提交即时过滤；同时在后台搜全部历史，看没加载的部分里还有多少匹配
+    var search by remember { mutableStateOf<SearchResult?>(null) }
+    val searchRepo = s?.repo
+    LaunchedEffect(searchRepo, query) {
+        search = null
+        val q = query.trim()
+        if (searchRepo == null || q.isEmpty()) return@LaunchedEffect
+        delay(300) // 打字时不要每个字都搜一遍
+        val job = coroutineContext.job
+        search = withContext(Dispatchers.IO) {
+            runCatching { searchRepo.searchCommits(q, cancelled = { !job.isActive }) }.getOrNull()
+        }
+    }
+    val unloadedMatches = remember(search, s) { s?.let { st -> search?.ids?.filter { it !in st.indexById } } }
+
+    LaunchedEffect(scrollTarget, shown) {
+        val id = scrollTarget ?: return@LaunchedEffect
+        val index = s?.indexById?.get(id) ?: return@LaunchedEffect // 还没加载到，等下一页
         val position = shown.indexOf(index)
-        if (position >= 0) scope.launch { commitListState.animateScrollToItem((position - 3).coerceAtLeast(0)) }
+        if (position >= 0) commitListState.animateScrollToItem((position - 3).coerceAtLeast(0))
+        scrollTarget = null
+    }
+
+    /**
+     * 读下一页。target 不为空时一直读到它出现或历史读完，返回它是否已加载。
+     * 找提交时每次读的量翻倍，几十万个提交也只重排十几次。
+     */
+    suspend fun loadMore(target: String? = null): Boolean {
+        while (true) {
+            val current = state ?: return false
+            if (target != null && target in current.indexById) return true
+            if (!current.result.truncated || current.history == null) return false
+            val count = if (target == null) GitRepo.PAGE_SIZE else maxOf(GitRepo.PAGE_SIZE, current.result.commits.size)
+            loadingMore = true
+            try {
+                historyLock.withLock {
+                    // 等锁的时候可能刷新了，换成了新仓库，回到循环开头重新看
+                    if (state === current) state = withContext(Dispatchers.IO) { current.loadMore(count) }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                return false // 仓库被关掉之类，下次刷新会重新读
+            } finally {
+                loadingMore = false
+            }
+            if (target == null) return true
+        }
+    }
+
+    /** 选中并滚到 id；还没加载时先往下读，select 为 false 时只加载不选中。 */
+    fun jumpTo(id: String, select: Boolean = true) {
+        val current = s ?: return
+        current.indexById[id]?.let { index ->
+            if (select) { selected = current.result.commits[index]; scrollTarget = id }
+            return
+        }
+        seeking?.job?.cancel()
+        val job = scope.launch(start = CoroutineStart.LAZY) {
+            val me = coroutineContext.job
+            try {
+                val found = loadMore(target = id)
+                val now = state
+                if (!found || now == null) {
+                    net = NetStatus("找不到提交 ${id.take(7)}", "它不在任何分支、远程分支或标签的历史里", NetState.FAILED)
+                } else if (select) {
+                    now.indexById[id]?.let { selected = now.result.commits[it] }
+                    scrollTarget = id
+                }
+            } finally {
+                if (seeking?.job === me) seeking = null
+            }
+        }
+        seeking = Seek(id, job)
+        job.start()
     }
 
     Row(Modifier.fillMaxSize()) {
@@ -232,10 +331,9 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                 HorizontalDivider()
                 RefSidebar(
                     s.result.refs, query, selected?.id,
-                    isLoaded = { it in s.indexById },
                     onSelect = { ref ->
                         view = MainView.HISTORY
-                        s.indexById[ref.commitId]?.let(::selectCommit)
+                        jumpTo(ref.commitId)
                     },
                     onBranchOpen = { ref ->
                         if (cli != null && !ref.label.isCurrent) {
@@ -309,6 +407,17 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                         modifier = Modifier.fillMaxWidth().weight(1f),
                     )
                 } else {
+                    val searching = query.isNotBlank()
+                    val footer: String? = when {
+                        seeking != null -> "正在加载更早的提交…"
+                        searching && s.result.truncated && search == null -> "正在搜索全部历史…"
+                        searching && !unloadedMatches.isNullOrEmpty() -> {
+                            val more = if (search?.complete == false) "+" else ""
+                            "更早的历史里还有 ${unloadedMatches.size}$more 个匹配，点击加载"
+                        }
+                        loadingMore -> "正在加载更早的提交…"
+                        else -> null
+                    }
                     CommitList(
                         s, shown, selected, commitListState, onSelect = { selected = it },
                         Modifier.fillMaxWidth().weight(0.46f),
@@ -316,16 +425,24 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                             selected = c
                             if (cli != null) menu = commitMenu(c, c.id == s.headId, currentBranch, actions)
                         },
+                        // 搜索时不自动往下读，免得为了凑结果把整个历史读进来
+                        onNearEnd = {
+                            if (!searching && !loadingMore && seeking == null && s.result.truncated) scope.launch { loadMore() }
+                        },
+                        footer = footer,
+                        onFooter = unloadedMatches?.lastOrNull()?.takeIf { searching && seeking == null }?.let { oldest ->
+                            { jumpTo(oldest, select = false) }
+                        },
                     )
                     HorizontalDivider()
                     CommitDetail(
                         s.repo, selected,
-                        onOpenCommit = { id -> s.indexById[id]?.let(::selectCommit) },
+                        onOpenCommit = { id -> jumpTo(id) },
                         Modifier.fillMaxWidth().weight(0.54f),
                     )
                 }
                 HorizontalDivider()
-                StatusBar(s)
+                StatusBar(s, loadingMore || seeking != null, seeking?.let { { it.job.cancel() } })
             }
         }
     }
@@ -339,10 +456,12 @@ internal fun filterCommits(commits: List<CommitInfo>, query: String): List<Int> 
     if (q.isEmpty()) return commits.indices.toList()
     return commits.indices.filter { i ->
         val c = commits[i]
-        c.shortMessage.contains(q, ignoreCase = true) || c.author.contains(q, ignoreCase = true) ||
-            c.id.startsWith(q, ignoreCase = true) || c.refs.any { it.name.contains(q, ignoreCase = true) }
+        matchesQuery(q, c.shortMessage, c.author, c.id, c.refs.map { it.name })
     }
 }
+
+/** 正在加载、要找到的提交。 */
+private class Seek(val id: String, val job: Job)
 
 internal val TitleBarHeight = 52.dp
 
@@ -488,7 +607,7 @@ private fun SearchField(value: String, onChange: (String) -> Unit) {
 }
 
 @Composable
-internal fun StatusBar(state: RepoState) {
+internal fun StatusBar(state: RepoState, loading: Boolean = false, onCancel: (() -> Unit)? = null) {
     Row(
         Modifier.fillMaxWidth().height(24.dp).background(Palette.Rail).padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -501,9 +620,16 @@ internal fun StatusBar(state: RepoState) {
         }
         val count = state.result.commits.size
         Text(
-            if (state.result.truncated) "显示最近 $count 个提交" else "$count 个提交",
+            when {
+                loading -> "已加载 $count 个提交 · 正在加载更早的…"
+                state.result.truncated -> "已加载 $count 个提交 · 往下滚继续加载"
+                else -> "$count 个提交"
+            },
             fontSize = TypeScale.Caption, color = Palette.Faint, maxLines = 1,
         )
+        if (onCancel != null) {
+            Text("取消", fontSize = TypeScale.Caption, color = Palette.Link, modifier = Modifier.clickable(onClick = onCancel))
+        }
     }
 }
 

@@ -30,7 +30,7 @@ class ScreenshotTest {
                     Row(Modifier.fillMaxSize()) {
                         Column(Modifier.width(248.dp).fillMaxHeight().background(Palette.Rail)) {
                             Spacer(Modifier.height(TitleBarHeight))
-                            RefSidebar(result.refs, "", selected?.id, { true }, {}, Modifier.fillMaxWidth().weight(1f))
+                            RefSidebar(result.refs, "", selected?.id, {}, Modifier.fillMaxWidth().weight(1f))
                             HorizontalDivider()
                             Row(Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
                                 IconButton(if (Palette.isDark) Icons.Sun else Icons.Moon) {}

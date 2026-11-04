@@ -16,7 +16,8 @@ import androidx.compose.ui.unit.dp
 fun laneColor(lane: Int) = Palette.Lanes[lane % Palette.Lanes.size]
 
 val LaneWidth: Dp = 14.dp
-const val MAX_VISIBLE_LANES = 10
+/** 图至少能放这么多列；窗口宽时按宽度放更多，见 CommitList。 */
+const val MIN_VISIBLE_LANES = 10
 
 @Composable
 fun GraphCell(row: GraphRow, lanesShown: Int, isHeadCommit: Boolean, modifier: Modifier = Modifier) {
@@ -38,6 +39,14 @@ fun GraphCell(row: GraphRow, lanesShown: Int, isHeadCommit: Boolean, modifier: M
                 // 颜色取下方那一列，合并线就和被合并分支同色
                 curve(Offset(x(row.node), mid), Offset(x(lane), h), laneColor(lane), stroke)
             }
+        }
+
+        // 放不下的列不画，在最右一列的位置画三个点，提示右边还有线
+        val overflow = row.node >= lanesShown || row.passThrough.any { it >= lanesShown } ||
+            row.incoming.any { it >= lanesShown } || row.outgoing.any { it >= lanesShown }
+        if (overflow) {
+            val edge = w * lanesShown - 2.dp.toPx()
+            for (k in 0..2) drawCircle(Palette.Faint, 1.2.dp.toPx(), Offset(edge, mid + (k - 1) * 4.dp.toPx()))
         }
 
         if (row.node < lanesShown) {
