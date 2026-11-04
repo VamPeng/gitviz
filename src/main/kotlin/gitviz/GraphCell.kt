@@ -16,12 +16,23 @@ import androidx.compose.ui.unit.dp
 
 fun laneColor(lane: Int) = Palette.Lanes[lane % Palette.Lanes.size]
 
+/** 有高亮的线时，其余的线淡成这个透明度。 */
+private const val DIMMED_ALPHA = 0.18f
+
 val LaneWidth: Dp = 14.dp
 /** 图至少能放这么多列；窗口宽时按宽度放更多，见 CommitList。 */
 const val MIN_VISIBLE_LANES = 10
 
 @Composable
-fun GraphCell(row: GraphRow, lanesShown: Int, isHeadCommit: Boolean, modifier: Modifier = Modifier, isStash: Boolean = false) {
+fun GraphCell(
+    row: GraphRow,
+    lanesShown: Int,
+    isHeadCommit: Boolean,
+    modifier: Modifier = Modifier,
+    isStash: Boolean = false,
+    /** 要高亮的线的编号（Track.line）；null 表示不高亮，所有线正常显示。 */
+    highlight: Int? = null,
+) {
     Canvas(modifier.width(LaneWidth * lanesShown).fillMaxHeight()) {
         val w = LaneWidth.toPx()
         val h = size.height
@@ -29,16 +40,23 @@ fun GraphCell(row: GraphRow, lanesShown: Int, isHeadCommit: Boolean, modifier: M
         val stroke = 2.5.dp.toPx()
         fun x(lane: Int) = w * lane + w / 2
 
-        for (lane in row.passThrough) {
-            if (lane < lanesShown) drawLine(laneColor(lane), Offset(x(lane), 0f), Offset(x(lane), h), stroke)
-        }
-        for (lane in row.incoming) {
-            if (lane < lanesShown) curve(Offset(x(lane), 0f), Offset(x(row.node), mid), laneColor(lane), stroke)
-        }
-        for (lane in row.outgoing) {
-            if (lane < lanesShown) {
-                // 颜色取下方那一列，合并线就和被合并分支同色
-                curve(Offset(x(row.node), mid), Offset(x(lane), h), laneColor(lane), stroke)
+        fun lit(t: Track) = highlight == null || t.line == highlight
+        fun colorOf(t: Track) = laneColor(t.color).let { if (lit(t)) it else it.copy(alpha = DIMMED_ALPHA) }
+
+        // 先画淡的、再画亮的，高亮的线不会被淡线盖住
+        for (bright in listOf(false, true)) {
+            row.passThrough.forEachIndexed { i, lane ->
+                val t = row.passTracks[i]
+                if (lane < lanesShown && lit(t) == bright) drawLine(colorOf(t), Offset(x(lane), 0f), Offset(x(lane), h), stroke)
+            }
+            row.incoming.forEachIndexed { i, lane ->
+                val t = row.incomingTracks[i]
+                if (lane < lanesShown && lit(t) == bright) curve(Offset(x(lane), 0f), Offset(x(row.node), mid), colorOf(t), stroke)
+            }
+            row.outgoing.forEachIndexed { i, lane ->
+                val t = row.outgoingTracks[i]
+                // 颜色取下方那条线，合并线就和被合并分支同色
+                if (lane < lanesShown && lit(t) == bright) curve(Offset(x(row.node), mid), Offset(x(lane), h), colorOf(t), stroke)
             }
         }
 
@@ -56,12 +74,12 @@ fun GraphCell(row: GraphRow, lanesShown: Int, isHeadCommit: Boolean, modifier: M
             val topLeft = Offset(x(row.node) - half, mid - half)
             val box = Size(half * 2, half * 2)
             drawRect(Palette.Node, topLeft, box)
-            drawRect(laneColor(row.node), topLeft, box, style = Stroke(1.5.dp.toPx()))
+            drawRect(colorOf(row.nodeTrack), topLeft, box, style = Stroke(1.5.dp.toPx()))
         } else if (row.node < lanesShown) {
             val center = Offset(x(row.node), mid)
             // 提交是站点；HEAD 是更大的换乘站
             val r = (if (isHeadCommit) 6.dp else 4.5.dp).toPx()
-            drawCircle(laneColor(row.node), r, center)
+            drawCircle(colorOf(row.nodeTrack), r, center)
             drawCircle(Palette.Node, r - 2.dp.toPx(), center)
             if (isHeadCommit) drawCircle(Palette.Rail, 1.5.dp.toPx(), center)
         }

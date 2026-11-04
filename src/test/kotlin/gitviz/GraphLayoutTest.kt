@@ -3,6 +3,7 @@ package gitviz
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
 
 class GraphLayoutTest {
 
@@ -35,6 +36,51 @@ class GraphLayoutTest {
         assertEquals(1, rows[1].node)
         assertContentEquals(intArrayOf(), rows[1].outgoing)
         assertEquals(1, rows[2].width)
+    }
+
+    private fun withRefs(c: CommitInfo, vararg refs: RefLabel) = c.copy(refs = refs.toList())
+
+    @Test
+    fun `a line keeps one color and one line id all the way down`() {
+        val rows = GraphLayout.compute(listOf(commit("c", "b"), commit("b", "a"), commit("a")))
+        assertEquals(1, rows.map { it.nodeTrack }.distinct().size)
+    }
+
+    @Test
+    fun `merged branch is a different line and takes its branch color`() {
+        val commits = listOf(
+            withRefs(commit("m", "x", "f"), RefLabel("main", RefKind.BRANCH, isCurrent = true)),
+            commit("x", "a"),
+            withRefs(commit("f", "a"), RefLabel("feature", RefKind.BRANCH)),
+            commit("a"),
+        )
+        val colors = BranchColors(
+            listOf(
+                RefTarget(RefLabel("main", RefKind.BRANCH, isCurrent = true), "m"),
+                RefTarget(RefLabel("feature", RefKind.BRANCH), "f"),
+            ),
+        )
+        val rows = GraphLayout.compute(commits, colors)
+        assertEquals(0, rows[0].nodeTrack.color) // 当前分支排第一
+        assertEquals(1, rows[2].nodeTrack.color)
+        assertNotEquals(rows[0].nodeTrack.line, rows[2].nodeTrack.line)
+        // 合并线属于 feature 这条线，和 f 同色同编号
+        assertEquals(rows[2].nodeTrack, rows[0].outgoingTracks[1])
+        // 回到分叉点后沿用 main 的线
+        assertEquals(rows[0].nodeTrack, rows[3].nodeTrack)
+    }
+
+    @Test
+    fun `remote branch shares the color of the local one`() {
+        val colors = BranchColors(
+            listOf(
+                RefTarget(RefLabel("zeta", RefKind.BRANCH), "1"),
+                RefTarget(RefLabel("origin/zeta", RefKind.REMOTE), "1"),
+                RefTarget(RefLabel("v1", RefKind.TAG), "1"),
+            ),
+        )
+        assertEquals(colors.index(RefLabel("zeta", RefKind.BRANCH)), colors.index(RefLabel("origin/zeta", RefKind.REMOTE)))
+        assertEquals(null, colors.index(RefLabel("v1", RefKind.TAG)))
     }
 
     @Test

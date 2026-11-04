@@ -15,7 +15,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -23,7 +26,10 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -104,7 +110,13 @@ internal fun CommitList(
     onNearEnd: () -> Unit = {},
     footer: String? = null,
     onFooter: (() -> Unit)? = null,
+    /** 侧边栏正指着的分支所在的线（Track.line），图上只亮这一条。 */
+    sidebarHighlight: Int? = null,
 ) {
+    // 优先级：鼠标在图上指着的线 > 侧边栏指着的分支 > 选中提交所在的线
+    var hoverLine by remember { mutableStateOf<Int?>(null) }
+    val selectedLine = selected?.let { state.indexById[it.id] }?.let { state.rows[it].nodeTrack.line }
+    val highlight = hoverLine ?: sidebarHighlight ?: selectedLine
     val widest = remember(state) { state.rows.maxOfOrNull { it.width } ?: 1 }
     val now = rememberNowSeconds()
 
@@ -128,7 +140,10 @@ internal fun CommitList(
                 LazyColumn(Modifier.fillMaxSize().padding(end = 10.dp), state = listState) {
                     items(shown, key = { state.result.commits[it].id }) { index ->
                         val c = state.result.commits[index]
-                        CommitRow(c, state.rows[index], lanesShown, c.id == state.headId, c.id == selected?.id, now, onSelect, onMenu)
+                        CommitRow(
+                            c, state.rows[index], lanesShown, c.id == state.headId, c.id == selected?.id, now, onSelect, onMenu,
+                            state.branchColors, highlight, onHoverLine = { hoverLine = it },
+                        )
                     }
                     if (footer != null) item(key = "footer") {
                         Text(
@@ -165,6 +180,7 @@ private fun ColumnHeader(lanesShown: Int) {
     }
 }
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 private fun CommitRow(
     c: CommitInfo,
@@ -175,6 +191,9 @@ private fun CommitRow(
     nowSeconds: Long,
     onSelect: (CommitInfo) -> Unit,
     onMenu: (CommitInfo) -> Unit,
+    branchColors: BranchColors,
+    highlight: Int?,
+    onHoverLine: (Int?) -> Unit,
 ) {
     Row(
         Modifier.fillMaxWidth().height(Settings.rowHeight.dp)
@@ -185,9 +204,19 @@ private fun CommitRow(
             .padding(start = 12.dp, end = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        GraphCell(row, lanesShown, isHead, isStash = c.isStash)
+        // 鼠标停在图上，就只亮这个提交所在的那条线
+        var hovering by remember { mutableStateOf(false) }
+        val latestOnHover by rememberUpdatedState(onHoverLine)
+        DisposableEffect(Unit) { onDispose { if (hovering) latestOnHover(null) } }
+        GraphCell(
+            row, lanesShown, isHead, isStash = c.isStash, highlight = highlight,
+            modifier = Modifier
+                .onPointerEvent(PointerEventType.Enter) { hovering = true; latestOnHover(row.nodeTrack.line) }
+                .onPointerEvent(PointerEventType.Exit) { hovering = false; latestOnHover(null) },
+        )
         Spacer(Modifier.width(10.dp))
-        c.refs.take(MAX_VISIBLE_REFS).forEach { RefChip(it, laneColor(row.node)) }
+        // 分支标签用分支自己的颜色，和侧边栏一致；标签、储藏没有分支色，用所在线的颜色
+        c.refs.take(MAX_VISIBLE_REFS).forEach { RefChip(it, laneColor(branchColors.index(it) ?: row.nodeTrack.color)) }
         if (c.refs.size > MAX_VISIBLE_REFS) {
             Text("+${c.refs.size - MAX_VISIBLE_REFS}", fontSize = TypeScale.Caption, color = Palette.Faint,
                 modifier = Modifier.padding(end = 6.dp))

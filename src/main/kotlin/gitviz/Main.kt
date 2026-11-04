@@ -81,13 +81,14 @@ internal class RepoState(
     val headId: String?,
     val history: CommitPager? = null,
 ) {
+    val branchColors = BranchColors(result.refs)
     val indexById: Map<String, Int> = result.commits.withIndex().associate { (i, c) -> c.id to i }
 
     /** 再读 count 个提交。会阻塞，在 IO 线程调用。 */
     fun loadMore(count: Int): RepoState {
         val pager = checkNotNull(history)
         val next = pager.load(count)
-        return RepoState(repo, next, GraphLayout.compute(next.commits), headId, pager)
+        return RepoState(repo, next, GraphLayout.compute(next.commits, BranchColors(next.refs)), headId, pager)
     }
 }
 
@@ -116,6 +117,8 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
     var scrollTarget by remember { mutableStateOf<String?>(null) }
     // 储藏页选中的储藏，侧边栏和图上的储藏都能把它带过去
     var stashSelected by remember { mutableStateOf<String?>(null) }
+    // 侧边栏鼠标指着的分支，图上只亮它那条线
+    var hoveredRef by remember { mutableStateOf<RefTarget?>(null) }
 
     fun open(dir: File, quiet: Boolean = false) {
         scope.launch {
@@ -130,7 +133,7 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                         val keep = same?.result?.commits?.size ?: 0
                         val history = repo.openHistory(same?.history?.path)
                         val result = history.load(maxOf(GitRepo.PAGE_SIZE, keep))
-                        RepoState(repo, result, GraphLayout.compute(result.commits), repo.repository.resolve("HEAD")?.name, history)
+                        RepoState(repo, result, GraphLayout.compute(result.commits, BranchColors(result.refs)), repo.repository.resolve("HEAD")?.name, history)
                     } catch (e: Throwable) {
                         repo.close()
                         throw e
@@ -304,7 +307,7 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                         val pager = now.repo.openHistory(path)
                         try {
                             val result = pager.load(GitRepo.PAGE_SIZE)
-                            RepoState(now.repo, result, GraphLayout.compute(result.commits), now.headId, pager)
+                            RepoState(now.repo, result, GraphLayout.compute(result.commits, BranchColors(result.refs)), now.headId, pager)
                         } catch (e: Throwable) {
                             pager.close()
                             throw e
@@ -383,6 +386,8 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                     onBranchMenu = { ref ->
                         if (cli != null) menu = branchMenu(ref.label.name, ref.label.isCurrent, currentBranch, actions)
                     },
+                    branchColors = s.branchColors,
+                    onHover = { hoveredRef = it },
                     stashes = stashes,
                     onStash = { entry ->
                         view = MainView.HISTORY
@@ -474,6 +479,7 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                     CommitList(
                         s, shown, selected, commitListState, onSelect = { selected = it },
                         Modifier.fillMaxWidth().weight(0.46f),
+                        sidebarHighlight = hoveredRef?.let { s.indexById[it.commitId] }?.let { s.rows[it].nodeTrack.line },
                         onMenu = { c ->
                             selected = c
                             // 储藏不能 checkout、cherry-pick，右键直接去储藏页应用或删除

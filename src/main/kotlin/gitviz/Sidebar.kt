@@ -20,7 +20,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Path
@@ -46,6 +49,10 @@ fun RefSidebar(
     stashes: List<StashEntry> = emptyList(),
     onStash: (StashEntry) -> Unit = {},
     onStashOpen: (StashEntry) -> Unit = {},
+    /** 分支的颜色，和分支图同源。 */
+    branchColors: BranchColors = BranchColors.None,
+    /** 鼠标移到某个引用上、移开（null）时通知，图上据此高亮那条分支。 */
+    onHover: (RefTarget?) -> Unit = {},
 ) {
     var collapsed by remember { mutableStateOf(setOf("${RefKind.TAG}:")) } // 标签通常很多，默认收起
     val filtering = filter.isNotBlank()
@@ -80,7 +87,8 @@ fun RefSidebar(
                             FolderRow(row, !filtering && key in collapsed, onClick = { toggle(key) })
                         } else {
                             RefLeafRow(
-                                    row, ref, ref.commitId == selectedId, onClick = { onSelect(ref) },
+                                    row, ref, ref.commitId == selectedId, branchColors.index(ref.label),
+                                    onHover = onHover, onClick = { onSelect(ref) },
                                     onOpen = { if (ref.label.kind == RefKind.BRANCH) onBranchOpen(ref) },
                                     onMenu = { if (ref.label.kind == RefKind.BRANCH) onBranchMenu(ref) },
                                 )
@@ -129,29 +137,47 @@ private fun FolderRow(row: RefRow, collapsed: Boolean, onClick: () -> Unit) {
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalComposeUiApi::class)
 @Composable
 private fun RefLeafRow(
     row: RefRow,
     ref: RefTarget,
     selected: Boolean,
+    colorIndex: Int?,
+    onHover: (RefTarget?) -> Unit,
     onClick: () -> Unit,
     onOpen: () -> Unit,
     onMenu: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
     val current = ref.label.isCurrent
+    val latestOnHover by rememberUpdatedState(onHover)
+    var hovering by remember { mutableStateOf(false) }
+    DisposableEffect(Unit) { onDispose { if (hovering) latestOnHover(null) } }
     Row(
         Modifier.fillMaxWidth().height(25.dp)
+            .onPointerEvent(PointerEventType.Enter) { hovering = true; latestOnHover(ref) }
+            .onPointerEvent(PointerEventType.Exit) { hovering = false; latestOnHover(null) }
             .onRightClick(onMenu)
             .rowHighlight(selected)
             .combinedClickable(onClick = onClick, onDoubleClick = onOpen)
             .indented(row.depth),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // 当前分支用和分支图一样的站点标记
+        // 分支前的圆点用分支图上那条线的颜色：本地分支实心，远程描边，当前分支画成 HEAD 那样的换乘站
         Canvas(Modifier.width(14.dp).height(10.dp)) {
-            if (current) drawCircle(Palette.Accent, 4.dp.toPx(), Offset(4.dp.toPx(), size.height / 2))
+            if (colorIndex == null) return@Canvas
+            val c = laneColor(colorIndex)
+            val center = Offset(4.dp.toPx(), size.height / 2)
+            when {
+                current -> {
+                    drawCircle(c, 5.dp.toPx(), center)
+                    drawCircle(Palette.Node, 3.dp.toPx(), center)
+                    drawCircle(Palette.Rail, 1.5.dp.toPx(), center)
+                }
+                ref.label.kind == RefKind.REMOTE -> drawCircle(c, 3.5.dp.toPx(), center, style = Stroke(1.5.dp.toPx()))
+                else -> drawCircle(c, 4.dp.toPx(), center)
+            }
         }
         Text(
             row.node.name, fontSize = TypeScale.Body, maxLines = 1, overflow = TextOverflow.Ellipsis,

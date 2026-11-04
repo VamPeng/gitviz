@@ -13,7 +13,59 @@ class GraphRow(
     val incoming: IntArray,
     val outgoing: IntArray,
     val width: Int,
+    /** 本行节点所在的线。下面几组和上面同名的数组一一对应。 */
+    val nodeTrack: Track = Track(0, 0),
+    val passTracks: List<Track> = emptyList(),
+    val incomingTracks: List<Track> = emptyList(),
+    val outgoingTracks: List<Track> = emptyList(),
 )
+
+/**
+ * 图上的一条线。color 是调色板下标；line 是线的编号，同一条线从分支顶端一路往下都是同一个编号，
+ * 用来在图上只高亮一条分支。颜色会重复（调色板只有几种），编号不会。
+ */
+data class Track(val color: Int, val line: Int)
+
+/** 调色板里的颜色数，要和 Palette 的 lanes 个数一致。 */
+const val LANE_COLOR_COUNT = 8
+
+/**
+ * 分支名 → 颜色下标。分支图和侧边栏都从这里取色，所以同一个分支在两处同色。
+ * 本地分支 feature 和远程 origin/feature 视为同一个分支。
+ */
+class BranchColors(refs: List<RefTarget>) {
+    private val byName: Map<String, Int>
+
+    init {
+        val names = refs.mapNotNull { shortName(it.label) }.distinct()
+        val current = refs.firstOrNull { it.label.kind == RefKind.BRANCH && it.label.isCurrent }?.label?.name
+        val order = names.sortedWith(
+            compareBy({ it != current }, { it !in setOf("main", "master") }, { it.lowercase() }),
+        )
+        byName = order.withIndex().associate { (i, n) -> n to i % LANE_COLOR_COUNT }
+    }
+
+    /** 参与着色的分支名；标签、储藏、HEAD 不参与。 */
+    private fun shortName(label: RefLabel): String? = when (label.kind) {
+        RefKind.BRANCH -> label.name
+        RefKind.REMOTE -> label.name.substringAfter('/', "").takeIf { it.isNotEmpty() && it != "HEAD" }
+        else -> null
+    }
+
+    fun index(label: RefLabel): Int? = shortName(label)?.let { byName[it] }
+
+    /** 提交上挂着的分支里该用哪个颜色：当前分支优先，其次本地，最后远程。 */
+    fun indexFor(commit: CommitInfo): Int? =
+        (commit.refs.filter { it.kind == RefKind.BRANCH }.sortedByDescending { it.isCurrent } +
+            commit.refs.filter { it.kind == RefKind.REMOTE })
+            .firstNotNullOfOrNull { index(it) }
+
+    val used: Set<Int> get() = byName.values.toSet()
+
+    companion object {
+        val None = BranchColors(emptyList())
+    }
+}
 
 object GraphLayout {
 
@@ -54,36 +106,62 @@ object GraphLayout {
     }
 
     /** commits 必须是拓扑序（子提交在父提交之前）。 */
-    fun compute(commits: List<CommitInfo>): List<GraphRow> {
-        // lanes[i] = 第 i 列正在等待的提交 id，null 表示空闲
+    fun compute(commits: List<CommitInfo>, colors: BranchColors = BranchColors.None): List<GraphRow> {
+        // lanes[i] = 第 i 列正在等待的提交 id，null 表示空闲；tracks[i] 是这一列上那条线
         val lanes = ArrayList<String?>()
+        val tracks = ArrayList<Track?>()
         val rows = ArrayList<GraphRow>(commits.size)
+        val byId = commits.associateBy { it.id }
+        val named = colors.used
+        var nextLine = 0
+        var nextFresh = 0
 
         fun freeSlot(exclude: Int = -1): Int {
             val i = lanes.indices.firstOrNull { lanes[it] == null && it != exclude }
             if (i != null) return i
             lanes += null
+            tracks += null
             return lanes.lastIndex
         }
 
+        // 没有分支名的线：挑一个没被现有的线、也没被有名分支占用的颜色，都占满了再放宽
+        fun freshColor(): Int {
+            val active = tracks.filterNotNull().map { it.color }.toSet()
+            val pick = (0 until LANE_COLOR_COUNT).map { (nextFresh + it) % LANE_COLOR_COUNT }.let { order ->
+                order.firstOrNull { it !in active && it !in named } ?: order.firstOrNull { it !in active } ?: order.first()
+            }
+            nextFresh = pick + 1
+            return pick
+        }
+
+        // 一条新线从 commit 开始：挂着分支就用分支的颜色
+        fun newTrack(commit: CommitInfo?) = Track(commit?.let { colors.indexFor(it) } ?: freshColor(), nextLine++)
+
         for (c in commits) {
             val incoming = lanes.indices.filter { lanes[it] == c.id }
+            val nodeTrack = incoming.firstOrNull()?.let { tracks[it] } ?: newTrack(c)
             val node = incoming.firstOrNull() ?: freeSlot()
             val passThrough = lanes.indices.filter { lanes[it] != null && lanes[it] != c.id }
+            val passTracks = passThrough.map { tracks[it]!! }
+            val incomingTracks = incoming.map { tracks[it]!! }
             val widthBefore = lanes.size
 
             // 汇入本节点的列都释放掉，本节点所在列改为等待第一个父提交
-            for (i in incoming) lanes[i] = null
-            val outgoing = ArrayList<Int>()
+            for (i in incoming) { lanes[i] = null; tracks[i] = null }
+            val outgoing = LinkedHashMap<Int, Track>()
             c.parents.forEachIndexed { index, parent ->
                 if (index == 0) {
                     lanes[node] = parent
-                    outgoing += node
+                    tracks[node] = nodeTrack
+                    outgoing.putIfAbsent(node, nodeTrack)
                 } else {
-                    // 合并提交的其他父提交：已有列在等它就连过去，否则开新列
+                    // 合并提交的其他父提交：已有列在等它就连过去，否则开新列，新列是一条新线
                     val existing = lanes.indexOf(parent)
-                    val lane = if (existing >= 0) existing else freeSlot(exclude = node).also { lanes[it] = parent }
-                    outgoing += lane
+                    val lane = if (existing >= 0) existing else freeSlot(exclude = node).also {
+                        lanes[it] = parent
+                        tracks[it] = newTrack(byId[parent])
+                    }
+                    outgoing.putIfAbsent(lane, tracks[lane]!!)
                 }
             }
 
@@ -91,11 +169,18 @@ object GraphLayout {
                 node = node,
                 passThrough = passThrough.toIntArray(),
                 incoming = incoming.toIntArray(),
-                outgoing = outgoing.distinct().toIntArray(),
+                outgoing = outgoing.keys.toIntArray(),
                 width = maxOf(widthBefore, lanes.size, node + 1),
+                nodeTrack = nodeTrack,
+                passTracks = passTracks,
+                incomingTracks = incomingTracks,
+                outgoingTracks = outgoing.values.toList(),
             )
 
-            while (lanes.isNotEmpty() && lanes.last() == null) lanes.removeAt(lanes.lastIndex)
+            while (lanes.isNotEmpty() && lanes.last() == null) {
+                lanes.removeAt(lanes.lastIndex)
+                tracks.removeAt(tracks.lastIndex)
+            }
         }
         return rows
     }
