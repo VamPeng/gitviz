@@ -64,3 +64,38 @@ fun toSplitRows(lines: List<DiffLine>): List<SplitRow> {
     flush()
     return rows
 }
+
+/** 文件权限的变化，old、new 是 git 的八进制模式，例如 100644。 */
+data class ModeChange(val old: String, val new: String) {
+    val text: String
+        get() {
+            val note = when {
+                old == "100644" && new == "100755" -> "加上可执行权限"
+                old == "100755" && new == "100644" -> "去掉可执行权限"
+                new == "120000" -> "改成符号链接"
+                old == "120000" -> "符号链接改成普通文件"
+                else -> null
+            }
+            return "权限 $old → $new" + (note?.let { "（$it）" }.orEmpty())
+        }
+}
+
+/** 从文件头的 old mode、new mode 两行读出权限变化，没有变化时返回 null。 */
+fun modeChange(lines: List<DiffLine>): ModeChange? {
+    val header = lines.filter { it.kind == DiffLineKind.HEADER }.map { it.text }
+    val old = header.firstOrNull { it.startsWith("old mode ") }?.removePrefix("old mode ")?.trim()
+    val new = header.firstOrNull { it.startsWith("new mode ") }?.removePrefix("new mode ")?.trim()
+    return if (old != null && new != null && old != new) ModeChange(old, new) else null
+}
+
+/** diff 里没有任何 @@ 段时，说明为什么没有可显示的行。 */
+fun emptyDiffMessage(lines: List<DiffLine>): String {
+    val header = lines.filter { it.kind == DiffLineKind.HEADER }.map { it.text }
+    modeChange(lines)?.let { return "仅${it.text}，内容没有变化" }
+    return when {
+        header.any { it.startsWith("Binary files") || it == "GIT binary patch" } -> "二进制文件，无法显示改动"
+        header.any { it.startsWith("rename from ") } -> "仅重命名，内容没有变化"
+        header.any { it.startsWith("copy from ") } -> "复制的文件，内容没有变化"
+        else -> "没有可显示的文本改动"
+    }
+}

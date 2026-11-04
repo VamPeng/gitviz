@@ -104,12 +104,7 @@ internal fun ChangesView(
                 HorizontalDivider()
                 val content = Modifier.fillMaxWidth().weight(1f)
                 Loaded(Triple(current, currentFile, revision), content, { parseDiffLines(cli.diff(currentFile, current.staged)) }) { lines ->
-                    val body = remember(lines) { lines.filter { it.kind != DiffLineKind.HEADER } }
-                    when {
-                        body.isEmpty() -> Message("没有可显示的文本改动", content)
-                        mode == DiffMode.Unified -> UnifiedDiff(body, content)
-                        else -> SplitDiff(lines, content)
-                    }
+                    DiffBody(lines, mode, content)
                 }
             }
         }

@@ -1,5 +1,7 @@
 package gitviz
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.TooltipArea
 import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -13,6 +15,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -20,13 +24,62 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 
 private val fullDate = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(ZoneId.systemDefault())
+private val shortDate = DateTimeFormatter.ofPattern("yyyy-MM-dd")
 
 internal fun formatTime(seconds: Long): String = fullDate.format(Instant.ofEpochSecond(seconds))
+
+/**
+ * 列表里用的相对时间。一天以内按秒差算，再往前按日历天算，所以昨晚 23 点的提交今早看是“昨天”。
+ * 30 天以前直接写日期。未来的时间（时钟不准）当作“刚刚”。
+ */
+internal fun relativeTime(seconds: Long, nowSeconds: Long, zone: ZoneId = ZoneId.systemDefault()): String {
+    val diff = nowSeconds - seconds
+    if (diff < 60) return "刚刚"
+    if (diff < 3600) return "${diff / 60} 分钟前"
+    if (diff < 86400) return "${diff / 3600} 小时前"
+    val then = Instant.ofEpochSecond(seconds).atZone(zone).toLocalDate()
+    val days = ChronoUnit.DAYS.between(then, Instant.ofEpochSecond(nowSeconds).atZone(zone).toLocalDate())
+    return when {
+        days <= 1 -> "昨天"
+        days < 30 -> "$days 天前"
+        else -> shortDate.format(then)
+    }
+}
+
+/** 当前时间（秒），每分钟更新一次，让列表里的相对时间跟着走。 */
+@Composable
+internal fun rememberNowSeconds(): Long {
+    val now by produceState(Instant.now().epochSecond) {
+        while (true) {
+            delay(60_000)
+            value = Instant.now().epochSecond
+        }
+    }
+    return now
+}
+
+/** 相对时间，鼠标停留时显示完整时间。 */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+internal fun RelativeTime(seconds: Long, nowSeconds: Long, modifier: Modifier = Modifier) {
+    TooltipArea(
+        tooltip = {
+            Text(formatTime(seconds), fontSize = TypeScale.Caption, color = Palette.Ink,
+                modifier = Modifier.background(Palette.Raised, RoundedCornerShape(4.dp)).border(1.dp, Palette.Line, RoundedCornerShape(4.dp))
+                    .padding(horizontal = 8.dp, vertical = 4.dp))
+        },
+        modifier = modifier,
+    ) {
+        Text(relativeTime(seconds, nowSeconds), maxLines = 1, softWrap = false, fontSize = TypeScale.Small, color = Palette.Muted)
+    }
+}
 
 private const val MAX_VISIBLE_REFS = 3
 
@@ -47,6 +100,7 @@ internal fun CommitList(
     val lanesShown = remember(state) {
         (state.rows.maxOfOrNull { it.width } ?: 1).coerceIn(1, MAX_VISIBLE_LANES)
     }
+    val now = rememberNowSeconds()
     Column(modifier) {
         ColumnHeader(lanesShown)
         HorizontalDivider()
@@ -54,7 +108,7 @@ internal fun CommitList(
             LazyColumn(Modifier.fillMaxSize().padding(end = 10.dp), state = listState) {
                 items(shown, key = { state.result.commits[it].id }) { index ->
                     val c = state.result.commits[index]
-                    CommitRow(c, state.rows[index], lanesShown, c.id == state.headId, c.id == selected?.id, onSelect, onMenu)
+                    CommitRow(c, state.rows[index], lanesShown, c.id == state.headId, c.id == selected?.id, now, onSelect, onMenu)
                 }
             }
             VerticalScrollbar(rememberScrollbarAdapter(listState), Modifier.align(Alignment.CenterEnd).fillMaxHeight())
@@ -87,6 +141,7 @@ private fun CommitRow(
     lanesShown: Int,
     isHead: Boolean,
     isSelected: Boolean,
+    nowSeconds: Long,
     onSelect: (CommitInfo) -> Unit,
     onMenu: (CommitInfo) -> Unit,
 ) {
@@ -118,8 +173,7 @@ private fun CommitRow(
             Avatar(c.author)
             Text(c.author, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = TypeScale.Small, color = Palette.Muted)
         }
-        Text(formatTime(c.timeSeconds), maxLines = 1, softWrap = false, fontSize = TypeScale.Small, color = Palette.Muted,
-            modifier = Modifier.width(DateColumn).padding(start = 8.dp))
+        RelativeTime(c.timeSeconds, nowSeconds, Modifier.width(DateColumn).padding(start = 8.dp))
         Text(c.id.take(7), fontSize = TypeScale.Small, fontFamily = CodeFont, color = Palette.Faint, maxLines = 1,
             modifier = Modifier.width(HashColumn).padding(start = 8.dp))
     }

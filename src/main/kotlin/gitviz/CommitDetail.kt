@@ -53,22 +53,27 @@ internal fun CommitDetail(repo: GitRepo, commit: CommitInfo?, onOpenCommit: (Str
         return
     }
     // 刷新后 repo 是新对象，旧的 FileChange 不能再用，所以 repo 也要作为 key
-    var changes by remember(repo, commit.id) { mutableStateOf<Result<List<FileChange>>?>(null) }
-    var selectedFile by remember(repo, commit.id) { mutableStateOf<FileChange?>(null) }
+    // 合并提交和哪个父提交比较，换提交时回到第一个
+    var parentIndex by remember(commit.id) { mutableStateOf(0) }
+    var changes by remember(repo, commit.id, parentIndex) { mutableStateOf<Result<List<FileChange>>?>(null) }
+    var selectedFile by remember(repo, commit.id, parentIndex) { mutableStateOf<FileChange?>(null) }
     var tab by remember { mutableStateOf(FileTab.Diff) }
     var mode by remember { mutableStateOf(Settings.defaultDiffMode) }
 
-    LaunchedEffect(repo, commit.id) {
-        val result = withContext(Dispatchers.IO) { runCatching { repo.changes(commit.id) } }
+    LaunchedEffect(repo, commit.id, parentIndex) {
+        val result = withContext(Dispatchers.IO) { runCatching { repo.changes(commit.id, parentIndex) } }
         changes = result
-        selectedFile = result.getOrNull()?.firstOrNull()
+        // 换父提交时尽量停在同一个文件上
+        val list = result.getOrNull()
+        selectedFile = list?.firstOrNull { it.path == selectedFile?.path } ?: list?.firstOrNull()
     }
 
     Column(modifier) {
         CommitHeader(commit, onOpenCommit)
         HorizontalDivider()
         Row(Modifier.fillMaxWidth().weight(1f)) {
-            ChangedFiles(changes, selectedFile, onSelect = { selectedFile = it }, Modifier.width(340.dp).fillMaxHeight())
+            ChangedFiles(commit, parentIndex, { parentIndex = it }, changes, selectedFile, onSelect = { selectedFile = it },
+                Modifier.width(340.dp).fillMaxHeight())
             VerticalDivider()
             val file = selectedFile
             if (file != null) {
@@ -120,6 +125,13 @@ private fun CommitHeader(commit: CommitInfo, onOpenCommit: (String) -> Unit) {
                     }
                 }
             }
+            if (commit.committedSeparately) {
+                // 作者名一样时只说时间，免得同一个名字写两遍
+                val who = if (commit.committer == commit.author && commit.committerEmail == commit.email) ""
+                    else "${commit.committer} <${commit.committerEmail}> "
+                Text("提交者 $who· ${formatTime(commit.commitTimeSeconds)}", fontSize = TypeScale.Small, color = Palette.Faint,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
+            }
         }
         CopyHash(commit)
     }
@@ -147,6 +159,9 @@ private fun CopyHash(commit: CommitInfo) {
 
 @Composable
 private fun ChangedFiles(
+    commit: CommitInfo,
+    parentIndex: Int,
+    onParent: (Int) -> Unit,
     changes: Result<List<FileChange>>?,
     selected: FileChange?,
     onSelect: (FileChange) -> Unit,
@@ -167,6 +182,17 @@ private fun ChangedFiles(
             }
         }
         HorizontalDivider()
+        if (commit.parents.size > 1) {
+            Row(
+                Modifier.fillMaxWidth().height(30.dp).padding(horizontal = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text("对比", fontSize = TypeScale.Small, color = Palette.Muted)
+                Segmented(commit.parents.mapIndexed { i, id -> i to "父 ${i + 1} · ${id.take(7)}" }, parentIndex, onSelect = onParent)
+            }
+            HorizontalDivider()
+        }
         LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
             if (failure != null) item {
                 Text("读取改动失败：${failure.message ?: failure}", color = MaterialTheme.colorScheme.error,
@@ -198,6 +224,10 @@ private fun FileRow(f: FileChange, selected: Boolean, onSelect: (FileChange) -> 
                 Text(dir, fontSize = TypeScale.Caption, maxLines = 1, overflow = TextOverflow.Ellipsis, color = Palette.Faint,
                     modifier = Modifier.weight(1f, fill = false))
             }
+        }
+        f.modeChange?.let { m ->
+            Text("${m.old.takeLast(3)}→${m.new.takeLast(3)}", fontSize = TypeScale.Caption, fontFamily = CodeFont,
+                color = Palette.Modified, maxLines = 1)
         }
         Text("+${f.additions}", fontSize = TypeScale.Caption, color = Palette.Added, maxLines = 1)
         Text("−${f.deletions}", fontSize = TypeScale.Caption, color = Palette.Removed, maxLines = 1)
@@ -307,14 +337,29 @@ private val DiffLine.code: String get() = if (kind == DiffLineKind.HUNK) text el
 
 @Composable
 private fun DiffContent(repo: GitRepo, file: FileChange, mode: DiffMode, modifier: Modifier) {
-    Loaded(file, modifier, { parseDiffLines(repo.diffText(file)) }) { lines ->
-        val body = remember(lines) { lines.filter { it.kind != DiffLineKind.HEADER } }
-        when {
-            // 二进制文件、纯重命名没有 @@ 段
-            body.isEmpty() -> Message(if (lines.any { "Binary" in it.text }) "二进制文件，无法显示改动" else "内容没有变化", modifier)
-            mode == DiffMode.Unified -> UnifiedDiff(body, modifier)
-            else -> SplitDiff(lines, modifier)
+    Loaded(file, modifier, { parseDiffLines(repo.diffText(file)) }) { lines -> DiffBody(lines, mode, modifier) }
+}
+
+/**
+ * 显示一个文件的 diff。没有 @@ 段时（二进制、纯重命名、只改权限）说明原因；
+ * 内容和权限都改了时，在顶上加一行权限变化。
+ */
+@Composable
+internal fun DiffBody(lines: List<DiffLine>, mode: DiffMode, modifier: Modifier) {
+    val body = remember(lines) { lines.filter { it.kind != DiffLineKind.HEADER } }
+    if (body.isEmpty()) {
+        Message(remember(lines) { emptyDiffMessage(lines) }, modifier)
+        return
+    }
+    val modeChange = remember(lines) { modeChange(lines) }
+    Column(modifier) {
+        if (modeChange != null) {
+            Text(modeChange.text, fontSize = TypeScale.Small, fontFamily = CodeFont, color = Palette.Modified,
+                modifier = Modifier.fillMaxWidth().background(Palette.Modified.copy(alpha = 0.08f)).padding(horizontal = 14.dp, vertical = 4.dp))
+            HorizontalDivider()
         }
+        val content = Modifier.fillMaxWidth().weight(1f)
+        if (mode == DiffMode.Unified) UnifiedDiff(body, content) else SplitDiff(lines, content)
     }
 }
 
@@ -374,6 +419,7 @@ private fun HistoryContent(repo: GitRepo, commit: CommitInfo, file: FileChange, 
             return@Loaded
         }
         val listState = rememberLazyListState()
+        val now = rememberNowSeconds()
         Box(modifier) {
             LazyColumn(Modifier.fillMaxSize(), state = listState) {
                 items(history, key = { it.id }) { c ->
@@ -386,7 +432,7 @@ private fun HistoryContent(repo: GitRepo, commit: CommitInfo, file: FileChange, 
                         Text(c.id.take(7), fontSize = TypeScale.Small, fontFamily = CodeFont, color = Palette.Faint)
                         Text(c.shortMessage, fontSize = TypeScale.Body, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                         Text(c.author, fontSize = TypeScale.Small, color = Palette.Muted, maxLines = 1)
-                        Text(formatTime(c.timeSeconds), fontSize = TypeScale.Small, color = Palette.Muted, maxLines = 1)
+                        RelativeTime(c.timeSeconds, now)
                     }
                     HorizontalDivider()
                 }

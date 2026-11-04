@@ -57,4 +57,21 @@ class DiffLinesTest {
         val kinds = parseDiffLines("diff --git a/x b/x\nBinary files a/x and b/x differ").map { it.kind }
         assertEquals(listOf(DiffLineKind.HEADER, DiffLineKind.HEADER), kinds)
     }
+
+    @Test
+    fun `mode change is read from the file header only`() {
+        val lines = parseDiffLines("diff --git a/x b/x\nold mode 100644\nnew mode 100755\n@@ -1 +1 @@\n-old mode 1\n+new mode 2")
+        assertEquals(ModeChange("100644", "100755"), modeChange(lines))
+        assertEquals(null, modeChange(parseDiffLines("@@ -1 +1 @@\n-a\n+b")))
+    }
+
+    @Test
+    fun `empty diff explains why`() {
+        assertEquals("仅重命名，内容没有变化",
+            emptyDiffMessage(parseDiffLines("diff --git a/x b/y\nsimilarity index 100%\nrename from x\nrename to y")))
+        assertEquals("二进制文件，无法显示改动",
+            emptyDiffMessage(parseDiffLines("diff --git a/x b/x\nBinary files a/x and b/x differ")))
+        assertEquals("仅权限 100755 → 100644（去掉可执行权限），内容没有变化",
+            emptyDiffMessage(parseDiffLines("diff --git a/x b/x\nold mode 100755\nnew mode 100644")))
+    }
 }

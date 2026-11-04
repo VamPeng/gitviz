@@ -132,4 +132,51 @@ class GitRepoTest {
         assertTrue(messages.indexOf("skewed-child") < messages.indexOf(base.shortMessage))
         assertTrue(messages.indexOf("side") < messages.indexOf(base.shortMessage))
     }
+
+    @Test
+    fun `author and committer are kept apart`() {
+        File(dir, "a").writeText("x")
+        git.add().addFilepattern("a").call()
+        val author = PersonIdent("ann", "ann@a", Instant.ofEpochSecond(1_700_000_000), ZoneOffset.UTC)
+        val committer = PersonIdent("bob", "bob@b", Instant.ofEpochSecond(1_700_050_000), ZoneOffset.UTC)
+        git.commit().setMessage("picked").setAuthor(author).setCommitter(committer).setSign(false).call()
+
+        val c = load().commits.single()
+        assertEquals("ann" to 1_700_000_000L, c.author to c.timeSeconds)
+        assertEquals("bob" to 1_700_050_000L, c.committer to c.commitTimeSeconds)
+        assertTrue(c.committedSeparately)
+    }
+
+    @Test
+    fun `merge commit can be compared with either parent`() {
+        commit("root", "base")
+        git.branchCreate().setName("side").call()
+        commit("main change", "m")
+        git.checkout().setName("side").call()
+        commit("side change", "s")
+        git.checkout().setName("main").call()
+        val merge = git.merge().include(git.repository.resolve("side")).setMessage("merge")
+            .setCommit(false).call()
+        assertTrue(merge.mergeStatus.isSuccessful)
+        val mergeCommit = commit("merge side")
+
+        GitRepo.open(dir).use { repo ->
+            assertEquals(listOf("s"), repo.changes(mergeCommit.name, 0).map { it.path })
+            assertEquals(listOf("m"), repo.changes(mergeCommit.name, 1).map { it.path })
+        }
+    }
+
+    @Test
+    fun `mode only change is reported`() {
+        commit("add script", "run.sh")
+        File(dir, "run.sh").setExecutable(true)
+        git.add().addFilepattern("run.sh").call()
+        val chmod = commit("make executable")
+
+        GitRepo.open(dir).use { repo ->
+            val change = repo.changes(chmod.name).single()
+            assertEquals(ModeChange("100644", "100755"), change.modeChange)
+            assertEquals("仅权限 100644 → 100755（加上可执行权限），内容没有变化", emptyDiffMessage(parseDiffLines(repo.diffText(change))))
+        }
+    }
 }

@@ -23,6 +23,10 @@ data class RefLabel(val name: String, val kind: RefKind, val isCurrent: Boolean 
 /** 一个引用和它指向的提交。指向的提交不一定在已加载的范围内。 */
 data class RefTarget(val label: RefLabel, val commitId: String)
 
+/**
+ * timeSeconds 是作者写下这个提交的时间，和 author 配对显示。
+ * rebase、cherry-pick、amend 会改提交者和提交时间，不改作者，所以两组可能不同。
+ */
 data class CommitInfo(
     val id: String,
     val parents: List<String>,
@@ -32,8 +36,15 @@ data class CommitInfo(
     val email: String,
     val timeSeconds: Long,
     val refs: List<RefLabel>,
+    val committer: String = author,
+    val committerEmail: String = email,
+    val commitTimeSeconds: Long = timeSeconds,
 ) {
     val shortId: String get() = id.take(8)
+
+    /** 提交者或提交时间和作者不同，详情里要单独显示一行。 */
+    val committedSeparately: Boolean
+        get() = committer != author || committerEmail != email || commitTimeSeconds != timeSeconds
 }
 
 data class FileChange(
@@ -44,6 +55,15 @@ data class FileChange(
     val deletions: Int,
     internal val entry: DiffEntry,
 ) {
+    /** 只有改动、重命名、复制才谈得上权限变化；新增和删除的另一边是 MISSING。 */
+    val modeChange: ModeChange?
+        get() {
+            if (type == DiffEntry.ChangeType.ADD || type == DiffEntry.ChangeType.DELETE) return null
+            val old = Integer.toOctalString(entry.oldMode.bits)
+            val new = Integer.toOctalString(entry.newMode.bits)
+            return if (old != new) ModeChange(old, new) else null
+        }
+
     /** 文件在这个提交里所在的路径；删除的文件取删除前的路径。 */
     val path: String get() = if (type == DiffEntry.ChangeType.DELETE) oldPath else newPath
 
@@ -106,10 +126,14 @@ class GitRepo private constructor(val repository: Repository) : AutoCloseable {
         return LoadResult(GraphLayout.topoSort(result), truncated, repository.branch, refs)
     }
 
-    fun changes(commitId: String): List<FileChange> {
+    /** 和第 parentIndex 个父提交比较的改动。合并提交可以选和哪个父提交比；根提交和空树比。 */
+    fun changes(commitId: String, parentIndex: Int = 0): List<FileChange> {
         RevWalk(repository).use { walk ->
             val commit = walk.parseCommit(ObjectId.fromString(commitId))
-            val oldTree: RevTree? = if (commit.parentCount > 0) walk.parseCommit(commit.getParent(0)).tree else null
+            require(commit.parentCount == 0 || parentIndex in 0 until commit.parentCount) {
+                "提交 ${commit.name.take(7)} 没有第 ${parentIndex + 1} 个父提交"
+            }
+            val oldTree: RevTree? = if (commit.parentCount > 0) walk.parseCommit(commit.getParent(parentIndex)).tree else null
             DiffFormatter(DisabledOutputStream.INSTANCE).use { df ->
                 df.setRepository(repository)
                 df.setDiffComparator(RawTextComparator.DEFAULT)
@@ -134,7 +158,7 @@ class GitRepo private constructor(val repository: Repository) : AutoCloseable {
         val contents = result.resultContents
         return (0 until contents.size()).map { i ->
             val source = result.getSourceCommit(i)
-            BlameLine(i + 1, contents.getString(i), source.name, source.authorIdent.name, source.commitTime.toLong())
+            BlameLine(i + 1, contents.getString(i), source.name, source.authorIdent.name, source.authorIdent.whenAsInstant.epochSecond)
         }
     }
 
@@ -187,8 +211,11 @@ class GitRepo private constructor(val repository: Repository) : AutoCloseable {
         fullMessage = fullMessage,
         author = authorIdent.name,
         email = authorIdent.emailAddress,
-        timeSeconds = commitTime.toLong(),
+        timeSeconds = authorIdent.whenAsInstant.epochSecond,
         refs = refs.sortedBy { it.kind.ordinal },
+        committer = committerIdent.name,
+        committerEmail = committerIdent.emailAddress,
+        commitTimeSeconds = commitTime.toLong(),
     )
 
     override fun close() = repository.close()

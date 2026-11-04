@@ -123,12 +123,7 @@ private fun StashDetail(cli: GitCli, entry: StashEntry, a: GitActions, modifier:
                         HorizontalDivider()
                         val content = Modifier.fillMaxWidth().weight(1f)
                         Loaded(entry.id to current, content, { parseDiffLines(cli.stashDiff(entry, current)) }) { lines ->
-                            val body = remember(lines) { lines.filter { it.kind != DiffLineKind.HEADER } }
-                            when {
-                                body.isEmpty() -> Message("没有可显示的文本改动", content)
-                                mode == DiffMode.Unified -> UnifiedDiff(body, content)
-                                else -> SplitDiff(lines, content)
-                            }
+                            DiffBody(lines, mode, content)
                         }
                     }
                 }
