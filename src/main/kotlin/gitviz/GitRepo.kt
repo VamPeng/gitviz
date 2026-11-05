@@ -305,6 +305,17 @@ class GitRepo private constructor(val repository: Repository) : AutoCloseable {
         }
     }.getOrDefault(emptyList())
 
+    /**
+     * 当前所有引用和 HEAD 指向的一个快照，只用来比较前后有没有变。新建、删除、移动分支或标签，
+     * 提交、切分支、储藏都会让它变。只读引用文件，不走提交历史，很快。
+     */
+    fun refsSnapshot(): String = buildString {
+        append(repository.fullBranch).append('\n')
+        for (ref in repository.refDatabase.refs.sortedBy { it.name }) {
+            append(ref.name).append(' ').append(ref.objectId?.name ?: ref.target?.name).append('\n')
+        }
+    }
+
     internal fun collectRefLabels(): Map<String, List<RefLabel>> {
         val map = HashMap<String, MutableList<RefLabel>>()
         val current = repository.fullBranch // 分离 HEAD 时是提交哈希

@@ -22,9 +22,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 private const val ContextLines = 3 // 冲突块前后各留几行，太长的相同内容折叠
 
@@ -36,22 +33,17 @@ internal fun ConflictView(
     operation: GitOperation?,
     onAbort: () -> Unit,
     onFinish: () -> Unit,
-    onChanged: () -> Unit,
-    onFailure: (String, String) -> Unit,
+    onRun: OperationRunner,
+    busy: Boolean,
     modifier: Modifier,
 ) {
-    val scope = rememberCoroutineScope()
     var selectedPath by remember(cli) { mutableStateOf<String?>(null) }
     var total by remember(cli, operation) { mutableStateOf(0) }
     total = maxOf(total, files.size)
     val current = files.firstOrNull { it.path == selectedPath } ?: files.firstOrNull()
 
     fun apply(op: GitCli.() -> GitResult) {
-        scope.launch {
-            val result = withContext(Dispatchers.IO) { cli.op() }
-            if (!result.ok) onFailure(t("Save failed", "保存失败"), errorSummary(result.output))
-            onChanged()
-        }
+        onRun(t("Saving resolution", "正在保存冲突处理"), t("Resolution saved", "已保存冲突处理"), op) {}
     }
 
     Column(modifier) {
@@ -64,8 +56,8 @@ internal fun ConflictView(
             Text(t("Resolved ${total - files.size} / $total", "已解决 ${total - files.size} / $total"), fontSize = TypeScale.Small, color = Palette.Muted)
             Spacer(Modifier.weight(1f))
             if (operation != null) {
-                BarButton(t("Abort", "放弃"), enabled = true, primary = false, onClick = onAbort)
-                BarButton(operation.finish, enabled = files.isEmpty(), primary = true, onClick = onFinish)
+                BarButton(t("Abort", "放弃"), enabled = !busy, primary = false, onClick = onAbort)
+                BarButton(operation.finish, enabled = !busy && files.isEmpty(), primary = true, onClick = onFinish)
             }
         }
         HorizontalDivider()
@@ -90,9 +82,9 @@ internal fun ConflictView(
             } else {
                 Loaded(current, pane, { cli.readWorkingFile(current.path)?.let(::parseConflict) ?: Unparsed }) { content ->
                     if (content is ConflictFile) {
-                        HunkPane(current.path, content, pane) { text -> apply { resolveFile(current.path, text) } }
+                        HunkPane(current.path, content, pane, !busy) { text -> apply { resolveFile(current.path, text) } }
                     } else {
-                        WholeFilePane(current, pane) { ours -> apply { resolveWhole(current.path, ours) } }
+                        WholeFilePane(current, pane, !busy) { ours -> apply { resolveWhole(current.path, ours) } }
                     }
                 }
             }
@@ -117,21 +109,21 @@ private fun BarButton(label: String, enabled: Boolean, primary: Boolean, onClick
 
 /** 删除对修改、二进制文件这些没有冲突标记的情况，只能整个文件选一边。 */
 @Composable
-private fun WholeFilePane(file: WorkingFile, modifier: Modifier, onPick: (ours: Boolean) -> Unit) {
+private fun WholeFilePane(file: WorkingFile, modifier: Modifier, enabled: Boolean, onPick: (ours: Boolean) -> Unit) {
     Box(modifier, contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(file.path, fontSize = TypeScale.Small, fontFamily = CodeFont, color = Palette.Muted)
             Text(t("This file can't be merged hunk by hunk. Choose which side to keep.", "这个文件不能按块合并，选择保留哪一边的版本。"), fontSize = TypeScale.Body)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                BarButton(t("Use current", "用当前分支"), enabled = true, primary = false) { onPick(true) }
-                BarButton(t("Use incoming", "用传入分支"), enabled = true, primary = false) { onPick(false) }
+                BarButton(t("Use current", "用当前分支"), enabled = enabled, primary = false) { onPick(true) }
+                BarButton(t("Use incoming", "用传入分支"), enabled = enabled, primary = false) { onPick(false) }
             }
         }
     }
 }
 
 @Composable
-private fun HunkPane(path: String, file: ConflictFile, modifier: Modifier, onSave: (String) -> Unit) {
+private fun HunkPane(path: String, file: ConflictFile, modifier: Modifier, enabled: Boolean, onSave: (String) -> Unit) {
     var choices by remember(path, file) { mutableStateOf(emptyMap<Int, Choice>()) }
     val hunkCount = file.hunks.size
     val indexed = remember(file) {
@@ -164,7 +156,7 @@ private fun HunkPane(path: String, file: ConflictFile, modifier: Modifier, onSav
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text(t("${choices.size} / $hunkCount hunks chosen in this file", "这个文件 ${choices.size} / $hunkCount 块已选择"), fontSize = TypeScale.Small, color = Palette.Muted, modifier = Modifier.weight(1f))
-            BarButton(t("Save file", "保存这个文件"), enabled = choices.size == hunkCount, primary = true) { onSave(resolveConflict(file, choices)) }
+            BarButton(t("Save file", "保存这个文件"), enabled = enabled && choices.size == hunkCount, primary = true) { onSave(resolveConflict(file, choices)) }
         }
     }
 }

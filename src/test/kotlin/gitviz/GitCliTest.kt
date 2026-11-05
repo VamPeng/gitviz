@@ -616,4 +616,43 @@ class GitCliTest {
         assertTrue(cli.abortOperation().ok)
         assertEquals(null, cli.currentOperation())
     }
+
+    @Test
+    fun `operation exceptions become visible failures and cancellation propagates`() {
+        val result = attemptGitOperation { throw java.io.IOException("Cannot start git: directory is missing") }
+        assertEquals(GitFailure.OTHER, result.failure)
+        val status = describeAction("Committing", "Committed", result)
+        assertEquals(NetState.FAILED, status.state)
+        assertTrue("directory is missing" in status.detail)
+        assertEquals(result.output, status.output)
+        kotlin.test.assertFailsWith<java.util.concurrent.CancellationException> {
+            attemptGitOperation { throw java.util.concurrent.CancellationException("cancelled") }
+        }
+    }
+
+    @Test
+    fun `feedback preserves full output and distinguishes warnings from failures`() {
+        val output = "error: failed to push some refs\nhint: Pull first\nhint: Then retry"
+        val failure = describe(NetOp.PUSH, GitResult(GitFailure.OTHER, output))
+        assertEquals(output, failure.output)
+        assertEquals("failed to push some refs", failure.detail)
+        assertEquals(NetOp.PUSH, failure.next)
+        val conflict = describeAction("Merging", "Merged", GitResult(GitFailure.CONFLICT, "CONFLICT in a"))
+        assertEquals(NetState.WARNING, conflict.state)
+        assertEquals(NetOp.ABORT, conflict.next)
+        val unmerged = describeAction("Deleting", "Deleted", GitResult(GitFailure.NOT_MERGED, "not fully merged"))
+        assertEquals(NetState.WARNING, unmerged.state)
+        assertEquals(null, unmerged.next)
+        val success = describeAction("Committing", "Committed", GitResult(null, "[main abc1234] test\n 1 file changed"))
+        assertEquals(NetState.DONE, success.state)
+        assertTrue(success.output.contains("abc1234"))
+        assertTrue(describe(NetOp.PULL, GitResult(null, "")).detail.isNotBlank())
+    }
+
+    @Test
+    fun `repeated identical feedback has independent display lifetime`() {
+        val first = NetStatus("Copied", "", NetState.DONE)
+        val second = NetStatus("Copied", "", NetState.DONE)
+        assertTrue(first.id != second.id)
+    }
 }

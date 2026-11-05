@@ -31,6 +31,7 @@ import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
@@ -102,6 +103,7 @@ internal fun CommitList(
     onFooter: (() -> Unit)? = null,
     /** 侧边栏正指着的分支所在的线（Track.line），图上只亮这一条。 */
     sidebarHighlight: Int? = null,
+    bottomPadding: Dp = 0.dp,
 ) {
     // 优先级：鼠标在图上指着的线 > 侧边栏指着的分支 > 选中提交所在的线
     var hoverLine by remember { mutableStateOf<Int?>(null) }
@@ -127,7 +129,8 @@ internal fun CommitList(
             ColumnHeader(lanesShown)
             HorizontalDivider()
             Box(Modifier.fillMaxWidth().weight(1f)) {
-                LazyColumn(Modifier.fillMaxSize().padding(end = 10.dp), state = listState) {
+                LazyColumn(Modifier.fillMaxSize().padding(end = 10.dp), state = listState,
+                    contentPadding = PaddingValues(bottom = bottomPadding)) {
                     items(shown, key = { state.result.commits[it].id }) { index ->
                         val c = state.result.commits[index]
                         CommitRow(

@@ -39,6 +39,21 @@ class GitRepoTest {
     private fun load(limit: Int = GitRepo.PAGE_SIZE) = GitRepo.open(dir).use { it.loadCommits(limit) }
 
     @Test
+    fun `refs snapshot changes when a branch is created elsewhere`() {
+        commit("one", "a")
+        GitRepo.open(dir).use { repo ->
+            val before = repo.refsSnapshot()
+            assertEquals(before, repo.refsSnapshot())
+            // 另一个 Repository 对象建分支，相当于在命令行里建
+            git.branchCreate().setName("feature").call()
+            val created = repo.refsSnapshot()
+            assertTrue(created != before)
+            git.checkout().setName("feature").call()
+            assertTrue(repo.refsSnapshot() != created)
+        }
+    }
+
+    @Test
     fun `notes do not show up as commits`() {
         val c = commit("one", "a")
         git.notesAdd().setObjectId(c).setMessage("note").call()

@@ -62,7 +62,7 @@ class ConflictsTest {
         val scene = ImageComposeScene(1112 * 2, 560 * 2, Density(2f)) {
             GitVizTheme {
                 Surface(Modifier.fillMaxSize(), color = Palette.Ground, contentColor = Palette.Ink) {
-                    ConflictView(cli, files, cli.currentOperation(), {}, {}, {}, { _, _ -> }, Modifier.fillMaxSize())
+                    ConflictView(cli, files, cli.currentOperation(), {}, {}, { _, _, _, _ -> }, false, Modifier.fillMaxSize())
                 }
             }
         }

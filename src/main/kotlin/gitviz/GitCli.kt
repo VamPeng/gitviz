@@ -26,6 +26,17 @@ data class GitResult(val failure: GitFailure?, val output: String) {
     val ok: Boolean get() = failure == null
 }
 
+/** 把进程启动、磁盘等异常转换为可见的失败结果；协程取消仍交给调用者处理。 */
+internal fun attemptGitOperation(op: () -> GitResult): GitResult = try {
+    op()
+} catch (e: java.util.concurrent.CancellationException) {
+    throw e
+} catch (e: Exception) {
+    GitResult(GitFailure.OTHER, e.message?.takeIf { it.isNotBlank() } ?: e.toString())
+}
+
+internal typealias OperationRunner = (String, String, GitCli.() -> GitResult, (Boolean) -> Unit) -> Unit
+
 /** 工作区里一个有改动的文件。index、worktree 是 git status 的两列状态字母。 */
 data class WorkingFile(val path: String, val oldPath: String?, val index: Char, val worktree: Char) {
     val untracked: Boolean get() = index == '?'

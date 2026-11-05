@@ -9,11 +9,12 @@ Kotlin + Compose Desktop + JGit 写的 git 可视化客户端，还在开发中�
 - 左侧引用树：本地分支、远程、标签，点击跳到对应提交
 - 工具栏搜索：同时搜提交、作者、哈希、分支和标签
 - 带分支图的提交历史：分支、远程分支、标签、HEAD 标记
-- 下方详情：点提交查看改动文件和增删行数，点文件看 diff（统一或并排，带行号）、文件历史和 Blame
+- 底部浮层详情：默认选中第一条提交；首次上滑显示，切换提交直接刷新；顶部箭头展开覆盖整个主区域/收起、拖动顶边调高，列表尾部留白避免遮挡。点文件看 diff（统一或并排，带行号）、文件历史和 Blame
 - 浅色和深色主题，配色是石墨橙，左下角切换
 - 本地改动：暂存、取消暂存、丢弃、提交、修改上一次提交，文件有变化时自动刷新工作区
 - 拉取和推送：调用系统的 git，沿用现有的 SSH 和钥匙串配置
-- 验证：要密码时由 git 和 ssh 弹出 macOS 系统对话框，密码不经过应用，也不保存
+- 操作反馈：蓝色进度、绿色成功、黄色需处理、红色失败；成功 5 秒后收起（悬停或展开详情时保留），错误手动关闭，详情可展开和复制，失败可按提示重试或处理冲突
+- 身份验证：要密码时由 git 和 ssh 弹出 macOS 系统对话框，密码不经过应用，也不保存
 - 仓库：工具栏切换最近的仓库、打开或克隆新仓库
 - 设置：主题、提交列表行高、默认 diff 视图
 - 文件：按目录浏览工作区，包括被 .gitignore 忽略的文件，标出每个文件的 git 状态；双击用系统程序打开
@@ -21,27 +22,40 @@ Kotlin + Compose Desktop + JGit 写的 git 可视化客户端，还在开发中�
 - 右键提交：检出、新建分支、打标签、合并、Cherry-pick、回滚、重置、复制
 - 右键分支：切换、合并、重命名、删除；双击分支切换
 - 解决冲突：合并、Cherry-pick、回滚出现冲突时自动打开，按块选择保留哪一边，也可以放弃回到操作之前
-- 默认加载最近 5000 个提交（`GitRepo.MAX_COMMITS`）
+- 提交历史每页加载 2000 条（`GitRepo.PAGE_SIZE`），滚动到底部时继续加载
 
 ## 运行
 需要 JDK 17–21（Android Studio 自带的 JBR 21 就行）。
 
 ```bash
-./gradlew run                              # 打开 gitviz 项目目录本身的仓库
-./gradlew run --args="/path/to/your/repo"  # 指定仓库
-./gradlew test                             # 跑测试
+./gradlew classes                          # 只编译，不启动界面
+./gradlew test                             # 无窗口测试，包括离屏截图
 ```
 
-或者用 IntelliJ IDEA 打开本目录，运行 `gitviz.MainKt`。
+macOS 日常界面调试使用下面的 Dev 安装流程，统一从 `/Applications/GitViz Dev.app` 启动。不要直接打开构建目录中的副本或额外启动 Java 界面进程。
+
+开发运行和开发安装包使用蓝色 `DEV` 图标，窗口名为 `GitViz Dev`；正式安装版使用原来的米白琥珀色图标和 `GitViz` 名称。图标文件位于 `design/icon/`、`packaging/icons/` 和 `src/main/resources/`。
 
 调试写操作用练习仓库，不要用 gitviz 本身。脚本会生成带分支、合并冲突、储藏和未提交改动的仓库，`origin` 是本地裸仓库，推送不会碰到 GitHub，弄坏了重新跑一次就恢复：
 
 ```bash
 ./scripts/playground.sh
-./gradlew run --args="/tmp/gitviz-playground"
+open "/Applications/GitViz Dev.app" --args "/tmp/gitviz-playground"
 ```
 
+启动参数仅在 Dev 尚未运行时生效；已有窗口可通过「打开仓库」选择练习仓库。
+
 打包安装包：`./gradlew packageDistributionForCurrentOS`
+
+macOS 安装独立开发版（可以和正式版同时运行；复制前先正常退出旧 Dev 并确认进程结束）：
+
+```bash
+./gradlew createDistributable -Pdev=true
+ditto "build/compose/packages.noindex/dev/main/app/GitViz Dev.app" "/Applications/GitViz Dev.app"
+open "/Applications/GitViz Dev.app"
+```
+
+打包产物统一放在 `build/compose/packages.noindex/`，避免 Spotlight 把构建副本也列成应用入口；日常只使用“应用程序”里的正式版和开发版。
 
 ## 结构
 | 文件 | 作用 |
@@ -55,6 +69,7 @@ Kotlin + Compose Desktop + JGit 写的 git 可视化客户端，还在开发中�
 | `Theme.kt` | 浅色和深色配色、字号、字体 |
 | `Components.kt` | 图标、按钮、头像这些通用组件 |
 | `CommitList.kt` | 提交列表 |
+| `CommitHistoryLayout.kt` | 提交列表底层、可展开和拖动的底部详情浮层 |
 | `CommitDetail.kt` | 提交详情、diff、文件历史、Blame |
 | `GitCli.kt` | 调用系统 git 执行所有写操作 |
 | `ChangesView.kt` | 本地改动和提交说明 |
@@ -63,7 +78,7 @@ Kotlin + Compose Desktop + JGit 写的 git 可视化客户端，还在开发中�
 | `Conflicts.kt`、`ConflictView.kt` | 解析冲突标记、解决冲突的界面 |
 | `Settings.kt` | 用户选项、最近的仓库、设置页 |
 | `GitMenus.kt` | 提交和分支的右键菜单、确认对话框 |
-| `NetBanner.kt` | 拉取、推送的进度和失败提示 |
+| `NetBanner.kt` | 通用操作进度、结果、警告和失败反馈，以及完整输出和复制 |
 | `Main.kt` | 窗口、工具栏、状态栏 |
 
 界面原型在 `docs/prototype/`，改界面前先看那里。`ScreenshotTest` 会把主界面渲染成图片存到 `build/screens/`。

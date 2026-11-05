@@ -63,6 +63,9 @@ internal fun FilesView(
     onShowHistory: (String) -> Unit,
     onFailure: (title: String, detail: String) -> Unit,
     modifier: Modifier,
+    onRun: OperationRunner,
+    onSuccess: (String) -> Unit,
+    busy: Boolean = false,
     /** 一开始看哪个目录，默认根目录。 */
     start: String = "",
 ) {
@@ -139,13 +142,14 @@ internal fun FilesView(
             items += MenuItem(t(if (isMac) "Show in Finder" else "Show in folder", if (isMac) "在 Finder 中显示" else "在文件夹中显示")) {
                 scope.launch {
                     val error = withContext(Dispatchers.IO) { runCatching { revealInFileManager(file) }.exceptionOrNull() }
+                    if (error is CancellationException) throw error
                     if (error != null) onFailure(t("Couldn't show ${entry.name}", "无法显示 ${entry.name}"), error.message ?: error.toString())
                 }
             }
             items += MenuSeparator
         }
-        items += MenuItem(t("Copy path", "复制路径")) { clipboard.setText(AnnotatedString(file.path)) }
-        items += MenuItem(t("Copy relative path", "复制相对路径")) { clipboard.setText(AnnotatedString(entry.path)) }
+        items += MenuItem(t("Copy path", "复制路径")) { clipboard.setText(AnnotatedString(file.path)); onSuccess(t("Path copied", "已复制路径")) }
+        items += MenuItem(t("Copy relative path", "复制相对路径")) { clipboard.setText(AnnotatedString(entry.path)); onSuccess(t("Relative path copied", "已复制相对路径")) }
         val working = status?.working(entry.path)
         val showChanges = !entry.isDir && working != null && !working.conflicted && !entry.ignored
         val showHistory = !entry.ignored && entry.mark != FileMark.UNTRACKED && entry.mark != FileMark.ADDED && !(entry.isDir && entry.missing)
@@ -154,12 +158,11 @@ internal fun FilesView(
         if (showChanges) items += MenuItem(t("Show changes", "查看改动")) { onShowChanges(entry.path) }
         if (showHistory) items += MenuItem(t("Show history", "查看历史")) { onShowHistory(entry.path) }
         if (canIgnore) {
-            items += MenuItem(t("Add to .gitignore", "加入 .gitignore")) {
-                scope.launch {
-                    val error = withContext(Dispatchers.IO) { runCatching { appendToGitignore(root, entry.path, entry.isDir) }.exceptionOrNull() }
-                    if (error != null) onFailure(t("Couldn't update .gitignore", "无法修改 .gitignore"), error.message ?: error.toString())
-                    revision++
-                }
+            items += MenuItem(t("Add to .gitignore", "加入 .gitignore"), enabled = !busy) {
+                onRun(t("Updating .gitignore", "正在更新 .gitignore"), t("Added ${entry.name} to .gitignore", "已将 ${entry.name} 加入 .gitignore"), {
+                    appendToGitignore(root, entry.path, entry.isDir)
+                    GitResult(null, "")
+                }) { revision++ }
             }
         }
         return items

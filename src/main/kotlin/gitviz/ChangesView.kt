@@ -38,13 +38,13 @@ internal fun ChangesView(
     files: List<WorkingFile>,
     branch: String?,
     onChanged: (historyChanged: Boolean) -> Unit,
-    onFailure: (title: String, detail: String) -> Unit,
+    onRun: OperationRunner,
     modifier: Modifier,
+    busy: Boolean = false,
     /** 从别处（比如文件页）带过来、要选中的文件。选中后调用 onFocused。 */
     focus: String? = null,
     onFocused: () -> Unit = {},
 ) {
-    val scope = rememberCoroutineScope()
     var selection by remember(cli) { mutableStateOf<Selection?>(null) }
     LaunchedEffect(focus) {
         val path = focus ?: return@LaunchedEffect
@@ -58,10 +58,9 @@ internal fun ChangesView(
     val unstaged = files.filter { it.hasUnstaged }
     val staged = files.filter { it.hasStaged }
 
-    fun apply(title: String, historyChanged: Boolean = false, op: GitCli.() -> GitResult, done: () -> Unit = {}) {
-        scope.launch {
-            val result = withContext(Dispatchers.IO) { cli.op() }
-            if (result.ok) done() else onFailure(title, errorSummary(result.output))
+    fun apply(running: String, success: String, historyChanged: Boolean = false, op: GitCli.() -> GitResult, done: () -> Unit = {}) {
+        onRun(running, success, op) { ok ->
+            if (ok) done()
             onChanged(historyChanged)
             revision++
         }
@@ -79,20 +78,20 @@ internal fun ChangesView(
                 item { GroupHeader(t("Unstaged", "未暂存"), unstaged.size, divider = false) }
                 items(unstaged, key = { "u:" + it.path }) { f ->
                     ChangeRow(f, f.worktree, current == Selection(f.path, false), { selection = Selection(f.path, false) }) {
-                        RowAction(t("Discard", "丢弃"), Palette.Removed) { toDiscard = f }
-                        RowAction(t("Stage", "暂存"), Palette.Link) { apply(t("Stage failed", "暂存失败"), op = { stage(f) }) }
+                        RowAction(t("Discard", "丢弃"), Palette.Removed, !busy) { toDiscard = f }
+                        RowAction(t("Stage", "暂存"), Palette.Link, !busy) { apply(t("Staging", "正在暂存"), t("Staged ${f.path}", "已暂存 ${f.path}"), op = { stage(f) }) }
                     }
                 }
                 item { GroupHeader(t("Staged", "已暂存"), staged.size) }
                 items(staged, key = { "s:" + it.path }) { f ->
                     ChangeRow(f, f.index, current == Selection(f.path, true), { selection = Selection(f.path, true) }) {
-                        RowAction(t("Unstage", "取消暂存"), Palette.Link) { apply(t("Unstage failed", "取消暂存失败"), op = { unstage(f) }) }
+                        RowAction(t("Unstage", "取消暂存"), Palette.Link, !busy) { apply(t("Unstaging", "正在取消暂存"), t("Unstaged ${f.path}", "已取消暂存 ${f.path}"), op = { unstage(f) }) }
                     }
                 }
             }
             HorizontalDivider()
-            CommitBox(cli, branch, staged.size, onCommit = { message, amend, done ->
-                apply(t("Commit failed", "提交失败"), historyChanged = true, op = { commit(message, amend) }, done = done)
+            CommitBox(cli, branch, staged.size, !busy, onCommit = { message, amend, done ->
+                apply(t("Committing", "正在提交"), t("Committed", "已提交"), historyChanged = true, op = { commit(message, amend) }, done = done)
             })
         }
         VerticalDivider()
@@ -131,7 +130,7 @@ internal fun ChangesView(
             confirmButton = {
                 TextButton(onClick = {
                     toDiscard = null
-                    apply(t("Discard failed", "丢弃失败"), op = { discard(f) })
+                    apply(t("Discarding", "正在丢弃"), t("Discarded changes to ${f.path}", "已丢弃 ${f.path} 的改动"), op = { discard(f) })
                 }) { Text(t("Discard", "丢弃"), color = Palette.Removed) }
             },
             dismissButton = { TextButton(onClick = { toDiscard = null }) { Text(t("Cancel", "取消"), color = Palette.Ink) } },
@@ -179,17 +178,17 @@ private fun ChangeRow(file: WorkingFile, code: Char, selected: Boolean, onSelect
 }
 
 @Composable
-private fun RowAction(label: String, color: Color, onClick: () -> Unit) {
+private fun RowAction(label: String, color: Color, enabled: Boolean, onClick: () -> Unit) {
     Text(label, fontSize = TypeScale.Caption, color = color, maxLines = 1,
-        modifier = Modifier.clip(RoundedCornerShape(4.dp)).clickable(onClick = onClick).padding(horizontal = 5.dp, vertical = 3.dp))
+        modifier = Modifier.alpha(if (enabled) 1f else 0.45f).clip(RoundedCornerShape(4.dp)).clickable(enabled = enabled, onClick = onClick).padding(horizontal = 5.dp, vertical = 3.dp))
 }
 
 @Composable
-private fun CommitBox(cli: GitCli, branch: String?, stagedCount: Int, onCommit: (String, Boolean, () -> Unit) -> Unit) {
+private fun CommitBox(cli: GitCli, branch: String?, stagedCount: Int, enabled: Boolean, onCommit: (String, Boolean, () -> Unit) -> Unit) {
     val scope = rememberCoroutineScope()
     var message by remember(cli) { mutableStateOf("") }
     var amend by remember(cli) { mutableStateOf(false) }
-    val canCommit = message.isNotBlank() && (amend || stagedCount > 0)
+    val canCommit = enabled && message.isNotBlank() && (amend || stagedCount > 0)
     val shape = RoundedCornerShape(5.dp)
     fun commit() {
         if (!canCommit) return
@@ -203,7 +202,7 @@ private fun CommitBox(cli: GitCli, branch: String?, stagedCount: Int, onCommit: 
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(t("Commit message", "提交说明"), fontSize = TypeScale.Small, color = Palette.Muted, modifier = Modifier.weight(1f))
             Row(
-                Modifier.clickable {
+                Modifier.clickable(enabled = enabled) {
                     amend = !amend
                     if (amend) scope.launch { message = withContext(Dispatchers.IO) { cli.lastCommitMessage() } } else message = ""
                 },
@@ -215,7 +214,7 @@ private fun CommitBox(cli: GitCli, branch: String?, stagedCount: Int, onCommit: 
             }
         }
         BasicTextField(
-            message, { message = it },
+            message, { message = it }, enabled = enabled,
             textStyle = TextStyle(color = Palette.Ink, fontSize = TypeScale.Body, fontFamily = UiFont),
             cursorBrush = SolidColor(Palette.Accent),
             modifier = Modifier.fillMaxWidth().height(110.dp)

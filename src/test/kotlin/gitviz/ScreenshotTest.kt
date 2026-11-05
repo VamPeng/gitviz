@@ -41,10 +41,13 @@ class ScreenshotTest {
                         Column(Modifier.weight(1f).fillMaxHeight()) {
                             Toolbar(state, false, 18.dp, "", {}, {}, {}, netBusy = false, onPull = {}, onPush = {}, onNewBranch = {}, canStash = true, onStash = {})
                             HorizontalDivider()
-                            CommitList(state, result.commits.indices.toList(), selected, rememberLazyListState(), { selected = it },
-                                Modifier.fillMaxWidth().weight(0.46f))
-                            HorizontalDivider()
-                            CommitDetail(repo, selected, {}, Modifier.fillMaxWidth().weight(0.54f))
+                            CommitHistoryLayout(selected != null, Modifier.fillMaxWidth().weight(1f),
+                                list = { bottomPadding ->
+                                    CommitList(state, result.commits.indices.toList(), selected, rememberLazyListState(), { selected = it },
+                                        Modifier.fillMaxSize(), bottomPadding = bottomPadding)
+                                },
+                                detail = { CommitDetail(repo, selected, {}, it) },
+                            )
                             HorizontalDivider()
                             StatusBar(state)
                         }
@@ -74,7 +77,7 @@ class ScreenshotTest {
         val scene = ImageComposeScene(1112 * 2, 700 * 2, Density(2f)) {
             GitVizTheme {
                 Surface(Modifier.fillMaxSize(), color = Palette.Ground, contentColor = Palette.Ink) {
-                    ChangesView(cli, files, "main", {}, { _, _ -> }, Modifier.fillMaxSize())
+                    ChangesView(cli, files, "main", {}, { _, _, _, _ -> }, Modifier.fillMaxSize())
                 }
             }
         }
@@ -119,7 +122,7 @@ class ScreenshotTest {
             val scene = ImageComposeScene(1112 * 2, 700 * 2, Density(2f)) {
                 GitVizTheme {
                     Surface(Modifier.fillMaxSize(), color = Palette.Ground, contentColor = Palette.Ink) {
-                        FilesView(GitCli(dir), dir, 0, {}, {}, { _, _ -> }, Modifier.fillMaxSize(), start = start)
+                        FilesView(GitCli(dir), dir, 0, {}, {}, { _, _ -> }, Modifier.fillMaxSize(), onRun = { _, _, _, _ -> }, onSuccess = {}, start = start)
                     }
                 }
             }
@@ -180,5 +183,35 @@ class ScreenshotTest {
         Palette.toggle()
         render(if (start) "light" else "dark")
         Palette.toggle()
+    }
+
+    @Test
+    fun `operation feedback renders in both themes`() {
+        val start = Palette.isDark
+        try {
+            repeat(2) {
+                val scene = ImageComposeScene(760 * 2, 580 * 2, Density(2f)) {
+                    GitVizTheme {
+                        Surface(Modifier.fillMaxSize(), color = Palette.Ground, contentColor = Palette.Ink) {
+                            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                                NetBanner(NetStatus("正在推送", "gitviz-playground · 正在等待远程响应…", NetState.RUNNING), {}, {})
+                                NetBanner(describeAction("正在提交", "已提交到 main", GitResult(null, "[main abc1234] 完善操作反馈\n 3 files changed, 42 insertions(+)")), {}, {})
+                                NetBanner(describeAction("正在合并", "已合并", GitResult(GitFailure.CONFLICT, "CONFLICT (content): Merge conflict in README.md")), {}, {})
+                                NetBanner(describe(NetOp.PUSH, GitResult(GitFailure.AUTH, "fatal: Authentication failed for remote\nPermission denied (publickey).")), {}, {})
+                                NetBanner(NetStatus("无法打开仓库", "找不到目录 /workspace/a-very-long-repository-name，目录可能已移动或删除，请重新选择仓库。", NetState.FAILED), {}, {})
+                            }
+                        }
+                    }
+                }
+                try {
+                    scene.render(0)
+                    val image = scene.render(100_000_000L)
+                    val out = File("build/screens/feedback-${if (Palette.isDark) "dark" else "light"}.png").apply { parentFile.mkdirs() }
+                    out.writeBytes(image.encodeToData(EncodedImageFormat.PNG)!!.bytes)
+                    assertTrue(out.length() > 0)
+                } finally { scene.close() }
+                Palette.toggle()
+            }
+        } finally { if (Palette.isDark != start) Palette.toggle() }
     }
 }
