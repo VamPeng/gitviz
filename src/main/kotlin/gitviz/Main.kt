@@ -41,6 +41,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
@@ -273,12 +274,14 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
     var watching by remember(cli) { mutableStateOf<Boolean?>(null) } // null：还在启动监听
     LaunchedEffect(cli) {
         val git = cli ?: return@LaunchedEffect
-        // Linux 上要逐个目录注册，可能要一会儿，放到后台
-        val watcher = withContext(Dispatchers.IO) {
-            runCatching { watchWorkTree(git.watchRoots, git.gitDirectories) { changes.trySend(Unit) } }.getOrNull()
-        }
-        watching = watcher != null
+        var watcher: AutoCloseable? = null
         try {
+            // Linux 上要逐个目录注册，可能要一会儿，放到后台。注册本身停不下来，
+            // 这期间换了仓库也要拿到建好的监听器，下面 finally 里才关得掉
+            watcher = withContext(Dispatchers.IO + NonCancellable) {
+                runCatching { watchWorkTree(git.watchRoots, git.gitDirectories) { changes.trySend(Unit) } }.getOrNull()
+            }
+            watching = watcher != null
             awaitCancellation()
         } finally {
             watcher?.close()
