@@ -102,6 +102,14 @@ private object AppIcon {
         AppIcon::class.java.getResourceAsStream("/icon.png")?.use { javax.imageio.ImageIO.read(it) }
 }
 
+/** 启动时加载画面至少显示多久。仓库打开得太快时，画面一闪就切走，看着像闪烁。 */
+private const val STARTUP_MIN_SHOW_MS = 600L
+
+// TODO 启动时从转圈切到主页会卡 0.5～0.6 秒，转圈停住。2026-11-05 实测：不是 GC（期间 0～50 ms），
+//  是主线程第一次画主页时加载了约 1100 个 Compose 类（文本组件、懒加载列表、排版最多）。
+//  方案：转圈期间在后台线程用 ImageComposeScene 离屏画一遍主页，提前加载这些类；要先确认和真实窗口同时跑不会互相干扰。
+//  备选：AppCDS 类归档，整个启动都能快，但要改打包流程。
+
 /** 监听不了文件变化时，多久读一次工作区状态。 */
 private const val POLL_INTERVAL_MS = 3000L
 
@@ -150,7 +158,8 @@ internal class RepoState(
 fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
     val scope = rememberCoroutineScope()
     var state by remember { mutableStateOf<RepoState?>(null) }
-    var loading by remember { mutableStateOf(false) }
+    // 一启动就要打开上次的仓库，先当成正在加载，第一帧不要露出欢迎页的按钮
+    var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var selected by remember { mutableStateOf<CommitInfo?>(null) }
     var query by remember { mutableStateOf("") }
@@ -175,8 +184,10 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
     // 侧边栏鼠标指着的分支，图上只亮它那条线
     var hoveredRef by remember { mutableStateOf<RefTarget?>(null) }
 
-    fun open(dir: File, quiet: Boolean = false) {
+    /** minShowMs：至少转这么久再换成仓库，启动时用，免得加载画面一闪而过。 */
+    fun open(dir: File, quiet: Boolean = false, minShowMs: Long = 0) {
         scope.launch {
+            val started = System.currentTimeMillis()
             loading = true; error = null
             try {
                 val before = state
@@ -200,6 +211,8 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                         throw e
                     }
                 }
+                val waited = System.currentTimeMillis() - started
+                if (waited < minShowMs) delay(minShowMs - waited)
                 historyLock.withLock {
                     state?.repo?.close()
                     state = newState
@@ -216,7 +229,7 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
         }
     }
 
-    LaunchedEffect(Unit) { open(initialDir, quiet = !reportInitialError) }
+    LaunchedEffect(Unit) { open(initialDir, quiet = !reportInitialError, minShowMs = STARTUP_MIN_SHOW_MS) }
     DisposableEffect(Unit) { onDispose { state?.repo?.close() } }
 
     val chooseAndOpen = { chooseDirectory(t("Choose a git repository folder", "选择 git 仓库目录"))?.let { open(it) }; Unit }
