@@ -68,29 +68,29 @@ internal fun ChangesView(
     Row(modifier) {
         Column(Modifier.width(340.dp).fillMaxHeight()) {
             LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
-                item { GroupHeader("未暂存", unstaged.size) }
+                item { GroupHeader(t("Unstaged", "未暂存"), unstaged.size) }
                 items(unstaged, key = { "u:" + it.path }) { f ->
                     ChangeRow(f, f.worktree, current == Selection(f.path, false), { selection = Selection(f.path, false) }) {
-                        RowAction("丢弃", Palette.Removed) { toDiscard = f }
-                        RowAction("暂存", Palette.Link) { apply("暂存失败", op = { stage(f) }) }
+                        RowAction(t("Discard", "丢弃"), Palette.Removed) { toDiscard = f }
+                        RowAction(t("Stage", "暂存"), Palette.Link) { apply(t("Stage failed", "暂存失败"), op = { stage(f) }) }
                     }
                 }
-                item { GroupHeader("已暂存", staged.size) }
+                item { GroupHeader(t("Staged", "已暂存"), staged.size) }
                 items(staged, key = { "s:" + it.path }) { f ->
                     ChangeRow(f, f.index, current == Selection(f.path, true), { selection = Selection(f.path, true) }) {
-                        RowAction("取消暂存", Palette.Link) { apply("取消暂存失败", op = { unstage(f) }) }
+                        RowAction(t("Unstage", "取消暂存"), Palette.Link) { apply(t("Unstage failed", "取消暂存失败"), op = { unstage(f) }) }
                     }
                 }
             }
             HorizontalDivider()
             CommitBox(cli, branch, staged.size, onCommit = { message, amend, done ->
-                apply("提交失败", historyChanged = true, op = { commit(message, amend) }, done = done)
+                apply(t("Commit failed", "提交失败"), historyChanged = true, op = { commit(message, amend) }, done = done)
             })
         }
         VerticalDivider()
         Column(Modifier.weight(1f).fillMaxHeight().background(Palette.Panel)) {
             if (current == null || currentFile == null) {
-                Message("工作区是干净的", Modifier.fillMaxSize())
+                Message(t("Working tree is clean", "工作区是干净的"), Modifier.fillMaxSize())
             } else {
                 Row(
                     Modifier.fillMaxWidth().height(28.dp).padding(start = 14.dp, end = 12.dp),
@@ -99,7 +99,7 @@ internal fun ChangesView(
                 ) {
                     Text(current.path, fontSize = TypeScale.Small, fontFamily = CodeFont, color = Palette.Muted, maxLines = 1,
                         overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                    Segmented(listOf(DiffMode.Unified to "统一", DiffMode.Split to "并排"), mode) { mode = it }
+                    Segmented(listOf(DiffMode.Unified to t("Unified", "统一"), DiffMode.Split to t("Split", "并排")), mode) { mode = it }
                 }
                 HorizontalDivider()
                 val content = Modifier.fillMaxWidth().weight(1f)
@@ -113,20 +113,20 @@ internal fun ChangesView(
     toDiscard?.let { f ->
         AlertDialog(
             onDismissRequest = { toDiscard = null },
-            title = { Text("丢弃改动", fontSize = TypeScale.Title, fontWeight = FontWeight.SemiBold) },
+            title = { Text(t("Discard changes", "丢弃改动"), fontSize = TypeScale.Title, fontWeight = FontWeight.SemiBold) },
             text = {
                 Text(
-                    if (f.untracked) "「${f.path}」是新文件，会被删除，无法恢复。" else "「${f.path}」未暂存的改动会被丢弃，无法恢复。",
+                    if (f.untracked) t("“${f.path}” is a new file. It will be deleted and can't be recovered.", "「${f.path}」是新文件，会被删除，无法恢复。") else t("Unstaged changes to “${f.path}” will be discarded and can't be recovered.", "「${f.path}」未暂存的改动会被丢弃，无法恢复。"),
                     fontSize = TypeScale.Body,
                 )
             },
             confirmButton = {
                 TextButton(onClick = {
                     toDiscard = null
-                    apply("丢弃失败", op = { discard(f) })
-                }) { Text("丢弃", color = Palette.Removed) }
+                    apply(t("Discard failed", "丢弃失败"), op = { discard(f) })
+                }) { Text(t("Discard", "丢弃"), color = Palette.Removed) }
             },
-            dismissButton = { TextButton(onClick = { toDiscard = null }) { Text("取消", color = Palette.Ink) } },
+            dismissButton = { TextButton(onClick = { toDiscard = null }) { Text(t("Cancel", "取消"), color = Palette.Ink) } },
             containerColor = Palette.Field,
             shape = RoundedCornerShape(10.dp),
         )
@@ -190,7 +190,7 @@ private fun CommitBox(cli: GitCli, branch: String?, stagedCount: Int, onCommit: 
 
     Column(Modifier.fillMaxWidth().background(Palette.Rail).padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("提交说明", fontSize = TypeScale.Small, color = Palette.Muted, modifier = Modifier.weight(1f))
+            Text(t("Commit message", "提交说明"), fontSize = TypeScale.Small, color = Palette.Muted, modifier = Modifier.weight(1f))
             Row(
                 Modifier.clickable {
                     amend = !amend
@@ -200,7 +200,7 @@ private fun CommitBox(cli: GitCli, branch: String?, stagedCount: Int, onCommit: 
                 horizontalArrangement = Arrangement.spacedBy(5.dp),
             ) {
                 Box(Modifier.size(12.dp).background(if (amend) Palette.Accent else Palette.Field, RoundedCornerShape(3.dp)).border(1.dp, Palette.Line, RoundedCornerShape(3.dp)))
-                Text("修改上一次提交", fontSize = TypeScale.Small, color = Palette.Muted)
+                Text(t("Amend last commit", "修改上一次提交"), fontSize = TypeScale.Small, color = Palette.Muted)
             }
         }
         BasicTextField(
@@ -209,9 +209,9 @@ private fun CommitBox(cli: GitCli, branch: String?, stagedCount: Int, onCommit: 
             cursorBrush = SolidColor(Palette.Accent),
             modifier = Modifier.fillMaxWidth().height(64.dp).background(Palette.Ground, shape).border(1.dp, Palette.Line, shape).padding(8.dp),
         )
-        val target = branch ?: "当前提交"
+        val target = branch ?: t("HEAD", "当前提交")
         Text(
-            if (amend) "修改上一次提交" else "提交到 $target · $stagedCount 个文件",
+            if (amend) t("Amend last commit", "修改上一次提交") else t("Commit to $target · ${countOf(stagedCount, "file")}", "提交到 $target · $stagedCount 个文件"),
             fontSize = TypeScale.Body, fontWeight = FontWeight.SemiBold, color = Palette.OnAccent, textAlign = TextAlign.Center, maxLines = 1,
             modifier = Modifier.fillMaxWidth().alpha(if (canCommit) 1f else 0.45f).clip(shape).background(Palette.Accent)
                 .clickable(enabled = canCommit) {

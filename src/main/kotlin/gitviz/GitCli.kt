@@ -5,10 +5,20 @@ import java.util.concurrent.TimeUnit
 
 enum class GitFailure { REJECTED, AUTH, CONFLICT, NOT_MERGED, OTHER }
 
-enum class ResetMode(val flag: String, val label: String, val hint: String) {
-    SOFT("--soft", "软重置", "撤销提交，改动保留在暂存区"),
-    MIXED("--mixed", "混合重置", "撤销提交，改动保留在工作区"),
-    HARD("--hard", "硬重置", "撤销提交并丢弃所有改动，无法恢复"),
+enum class ResetMode(val flag: String) {
+    SOFT("--soft"), MIXED("--mixed"), HARD("--hard");
+
+    val label: String get() = when (this) {
+        SOFT -> t("Soft", "软重置")
+        MIXED -> t("Mixed", "混合重置")
+        HARD -> t("Hard", "硬重置")
+    }
+
+    val hint: String get() = when (this) {
+        SOFT -> t("Undo commits, keep changes staged", "撤销提交，改动保留在暂存区")
+        MIXED -> t("Undo commits, keep changes in the working tree", "撤销提交，改动保留在工作区")
+        HARD -> t("Undo commits and discard all changes. Can't be undone.", "撤销提交并丢弃所有改动，无法恢复")
+    }
 }
 
 /** 一次网络操作的结果。failure 为 null 表示成功，output 是 git 的原始输出。 */
@@ -27,7 +37,21 @@ data class WorkingFile(val path: String, val oldPath: String?, val index: Char, 
 }
 
 /** 进行到一半、等待解决冲突的操作。 */
-enum class GitOperation(val label: String) { MERGE("合并"), CHERRY_PICK("Cherry-pick"), REVERT("回滚") }
+enum class GitOperation {
+    MERGE, CHERRY_PICK, REVERT;
+
+    val running: String get() = when (this) {
+        MERGE -> t("Merging", "正在合并")
+        CHERRY_PICK -> t("Cherry-picking", "正在Cherry-pick")
+        REVERT -> t("Reverting", "正在回滚")
+    }
+
+    val finish: String get() = when (this) {
+        MERGE -> t("Finish merge", "完成合并")
+        CHERRY_PICK -> t("Finish cherry-pick", "完成Cherry-pick")
+        REVERT -> t("Finish revert", "完成回滚")
+    }
+}
 
 /** 一条储藏。ref 是 stash@{n}，序号会随增删变化，id 才是它不变的身份。 */
 data class StashEntry(val ref: String, val id: String, val message: String, val branch: String, val timeSeconds: Long)
@@ -110,7 +134,7 @@ class GitCli(private val workTree: File) {
     /** 推送当前分支；没有上游时设到 origin，以后直接 git push 也能用。 */
     fun push(): GitResult {
         val branch = capture("symbolic-ref", "--short", "-q", "HEAD")
-            ?: return GitResult(GitFailure.OTHER, "现在不在任何分支上，无法推送")
+            ?: return GitResult(GitFailure.OTHER, t("Not on any branch, so there's nothing to push", "现在不在任何分支上，无法推送"))
         val hasUpstream = capture("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}") != null
         return if (hasUpstream) network("push") else network("push", "-u", "origin", branch)
     }
@@ -215,13 +239,13 @@ class GitCli(private val workTree: File) {
     private fun stashChange(entry: StashEntry, command: String) = ifStillThere(entry) {
         val result = run("stash", command, entry.ref)
         // 储藏没有 --abort，冲突的文件已经写进工作区，只能到本地改动里处理
-        if (result.failure == GitFailure.CONFLICT) GitResult(GitFailure.OTHER, "有冲突，文件已写入工作区，储藏保留。") else result
+        if (result.failure == GitFailure.CONFLICT) GitResult(GitFailure.OTHER, t("Conflicts. The files were written to the working tree and the stash was kept.", "有冲突，文件已写入工作区，储藏保留。")) else result
     }
 
     /** stash@{n} 的序号会变，动手前核对它还是用户选的那一条，不然可能删错。 */
     private fun ifStillThere(entry: StashEntry, action: () -> GitResult): GitResult =
         if (capture("rev-parse", "-q", "--verify", entry.ref) == entry.id) action()
-        else GitResult(GitFailure.OTHER, "储藏列表已经变了，请重新选择")
+        else GitResult(GitFailure.OTHER, t("The stash list changed. Please choose again.", "储藏列表已经变了，请重新选择"))
 
     private fun hasUntracked(entry: StashEntry) = capture("rev-parse", "-q", "--verify", "${entry.id}^3") != null
 
@@ -240,7 +264,7 @@ class GitCli(private val workTree: File) {
         GitOperation.MERGE -> run("merge", "--abort")
         GitOperation.CHERRY_PICK -> run("cherry-pick", "--abort")
         GitOperation.REVERT -> run("revert", "--abort")
-        null -> GitResult(GitFailure.OTHER, "没有进行中的操作")
+        null -> GitResult(GitFailure.OTHER, t("No operation in progress", "没有进行中的操作"))
     }
 
     /** 冲突都解决后完成操作。提交说明用 git 准备好的，不打开编辑器。 */
@@ -248,7 +272,7 @@ class GitCli(private val workTree: File) {
         GitOperation.MERGE -> run("commit", "--no-edit")
         GitOperation.CHERRY_PICK -> run("-c", "core.editor=true", "cherry-pick", "--continue")
         GitOperation.REVERT -> run("-c", "core.editor=true", "revert", "--continue")
-        null -> GitResult(GitFailure.OTHER, "没有进行中的操作")
+        null -> GitResult(GitFailure.OTHER, t("No operation in progress", "没有进行中的操作"))
     }
 
     /** 工作区里的文件内容，用来解析冲突标记。文件不存在时（一边删除了）返回 null。 */
@@ -310,7 +334,7 @@ class GitCli(private val workTree: File) {
         val pump = Thread { output.append(process.inputStream.bufferedReader().readText()) }.apply { isDaemon = true; start() }
         if (!process.waitFor(timeoutSeconds, TimeUnit.SECONDS)) {
             process.destroyForcibly()
-            return 1 to "git 运行超过 $timeoutSeconds 秒，已停止"
+            return 1 to t("git ran longer than $timeoutSeconds s and was stopped", "git 运行超过 $timeoutSeconds 秒，已停止")
         }
         pump.join()
         return process.exitValue() to output.toString()
@@ -333,13 +357,13 @@ internal fun repoNameFromUrl(url: String): String =
  * 其他系统没有这个脚本，要密码时直接失败并提示。
  */
 internal object Askpass {
-    private const val Script = """#!/bin/sh
+    private fun script(cancel: String, trust: String) = """#!/bin/sh
 exec /usr/bin/osascript - "$1" <<'APPLESCRIPT'
 on run argv
     set promptText to item 1 of argv
     activate
     if promptText contains "yes/no" then
-        display dialog promptText buttons {"取消", "信任"} default button "取消" cancel button "取消" with title "GitViz" with icon caution
+        display dialog promptText buttons {"$cancel", "$trust"} default button "$cancel" cancel button "$cancel" with title "GitViz" with icon caution
         return "yes"
     end if
     if promptText contains "assword" or promptText contains "assphrase" or promptText contains "PIN" then
@@ -353,7 +377,7 @@ APPLESCRIPT
     private val path: String? by lazy {
         if (!isMac) return@lazy null
         val file = File.createTempFile("gitviz-askpass", ".sh")
-        file.writeText(Script)
+        file.writeText(script(t("Cancel", "取消"), t("Trust", "信任")))
         file.setReadable(false, false)
         file.setWritable(false, false)
         file.setReadable(true, true)

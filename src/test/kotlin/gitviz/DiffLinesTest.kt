@@ -4,6 +4,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class DiffLinesTest {
+    init { Settings.language = Language.EN }
+
 
     @Test
     fun `lines that look like file headers inside a hunk keep their real kind`() {
@@ -67,11 +69,11 @@ class DiffLinesTest {
 
     @Test
     fun `empty diff explains why`() {
-        assertEquals("仅重命名，内容没有变化",
+        assertEquals("Renamed only; content unchanged",
             emptyDiffMessage(parseDiffLines("diff --git a/x b/y\nsimilarity index 100%\nrename from x\nrename to y")))
-        assertEquals("二进制文件，无法显示改动",
+        assertEquals("Binary file; changes can't be shown",
             emptyDiffMessage(parseDiffLines("diff --git a/x b/x\nBinary files a/x and b/x differ")))
-        assertEquals("仅权限 100755 → 100644（去掉可执行权限），内容没有变化",
+        assertEquals("Mode 100755 → 100644 (no longer executable); content unchanged",
             emptyDiffMessage(parseDiffLines("diff --git a/x b/x\nold mode 100755\nnew mode 100644")))
     }
 }

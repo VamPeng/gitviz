@@ -180,16 +180,16 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
     LaunchedEffect(Unit) { open(initialDir, quiet = !reportInitialError) }
     DisposableEffect(Unit) { onDispose { state?.repo?.close() } }
 
-    val chooseAndOpen = { chooseDirectory("选择 git 仓库目录")?.let { open(it) }; Unit }
+    val chooseAndOpen = { chooseDirectory(t("Choose a git repository folder", "选择 git 仓库目录"))?.let { open(it) }; Unit }
 
     fun askClone() {
-        dialog = DialogSpec("克隆仓库", "输入仓库地址，下一步选择保存到哪个文件夹。", "下一步", input = "仓库地址") { url, _ ->
-            val parent = chooseDirectory("选择保存到哪个文件夹") ?: return@DialogSpec
+        dialog = DialogSpec(t("Clone repository", "克隆仓库"), t("Enter the repository URL. Next, choose where to save it.", "输入仓库地址，下一步选择保存到哪个文件夹。"), t("Next", "下一步"), input = t("Repository URL", "仓库地址")) { url, _ ->
+            val parent = chooseDirectory(t("Choose where to save it", "选择保存到哪个文件夹")) ?: return@DialogSpec
             val name = repoNameFromUrl(url)
             scope.launch {
-                net = NetStatus("正在克隆", url, NetState.RUNNING)
+                net = NetStatus(t("Cloning", "正在克隆"), url, NetState.RUNNING)
                 val result = withContext(Dispatchers.IO) { GitCli(parent).clone(url, name) }
-                val outcome = describeAction("正在克隆", "已克隆 $name", result)
+                val outcome = describeAction(t("Cloning", "正在克隆"), t("Cloned $name", "已克隆 $name"), result)
                 net = outcome
                 if (result.ok) {
                     open(File(parent, name))
@@ -344,7 +344,7 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                net = NetStatus("读取文件历史失败", e.message ?: e.toString(), NetState.FAILED)
+                net = NetStatus(t("Couldn't read file history", "读取文件历史失败"), e.message ?: e.toString(), NetState.FAILED)
             } finally {
                 loading = false
             }
@@ -366,8 +366,8 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                 val now = state
                 if (!found || now == null) {
                     val path = now?.history?.path
-                    val why = if (path != null) "当前只看 $path 的历史，这个提交没有改动它" else "它不在任何分支、远程分支或标签的历史里"
-                    net = NetStatus("找不到提交 ${id.take(7)}", why, NetState.FAILED)
+                    val why = if (path != null) t("Showing only the history of $path, and this commit doesn't touch it", "当前只看 $path 的历史，这个提交没有改动它") else t("It isn't in the history of any branch, remote branch or tag", "它不在任何分支、远程分支或标签的历史里")
+                    net = NetStatus(t("Can't find commit ${id.take(7)}", "找不到提交 ${id.take(7)}"), why, NetState.FAILED)
                 } else if (select) {
                     now.indexById[id]?.let { selected = now.result.commits[it] }
                     scrollTarget = id
@@ -387,11 +387,11 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                 if (isMac) WindowDraggableArea { Spacer(Modifier.fillMaxWidth().height(TitleBarHeight)) }
                 Column(Modifier.padding(horizontal = 6.dp).padding(bottom = 6.dp), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                     if (inConflict) {
-                        WorkspaceItem("解决冲突", Icons.Branch, view == MainView.CONFLICT, conflicted.size) { view = MainView.CONFLICT }
+                        WorkspaceItem(t("Resolve conflicts", "解决冲突"), Icons.Branch, view == MainView.CONFLICT, conflicted.size) { view = MainView.CONFLICT }
                     }
-                    WorkspaceItem("本地改动", Icons.Edit, view == MainView.CHANGES, working.size - conflicted.size) { view = MainView.CHANGES }
-                    WorkspaceItem("所有提交", Icons.History, view == MainView.HISTORY, 0) { view = MainView.HISTORY }
-                    WorkspaceItem("储藏", Icons.Stash, view == MainView.STASH, stashes.size) { view = MainView.STASH }
+                    WorkspaceItem(t("Changes", "本地改动"), Icons.Edit, view == MainView.CHANGES, working.size - conflicted.size) { view = MainView.CHANGES }
+                    WorkspaceItem(t("All commits", "所有提交"), Icons.History, view == MainView.HISTORY, 0) { view = MainView.HISTORY }
+                    WorkspaceItem(t("Stashes", "储藏"), Icons.Stash, view == MainView.STASH, stashes.size) { view = MainView.STASH }
                 }
                 HorizontalDivider()
                 RefSidebar(
@@ -402,7 +402,7 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                     },
                     onBranchOpen = { ref ->
                         if (cli != null && !ref.label.isCurrent) {
-                            actions.run("正在切换", "已切换到 ${ref.label.name}") { switchTo(ref.label.name) }
+                            actions.run(t("Switching", "正在切换"), t("Switched to ${ref.label.name}", "已切换到 ${ref.label.name}")) { switchTo(ref.label.name) }
                         }
                     },
                     onBranchMenu = { ref ->
@@ -454,7 +454,7 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                 HorizontalDivider()
             }
             error?.let {
-                Text("打开失败：$it", color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(12.dp))
+                Text(t("Couldn't open: $it", "打开失败：$it"), color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(12.dp))
             }
             if (s == null) {
                 Welcome(loading, Settings.recentRepos, onRecent = { open(File(it)) }, onOpen = chooseAndOpen, onClone = ::askClone)
@@ -465,7 +465,7 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                     ConflictView(
                         cli, conflicted, operation,
                         onAbort = { runNet(NetOp.ABORT) },
-                        onFinish = { actions.run("正在完成", "已完成") { continueOperation() } },
+                        onFinish = { actions.run(t("Finishing", "正在完成"), t("Finished", "已完成")) { continueOperation() } },
                         onChanged = { scope.launch { reloadWorking() } },
                         onFailure = { title, detail -> net = NetStatus(title, detail, NetState.FAILED) },
                         modifier = Modifier.fillMaxWidth().weight(1f),
@@ -485,13 +485,13 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                 } else {
                     val searching = query.isNotBlank()
                     val footer: String? = when {
-                        seeking != null -> "正在加载更早的提交…"
-                        searching && s.result.truncated && search == null -> "正在搜索全部历史…"
+                        seeking != null -> t("Loading earlier commits…", "正在加载更早的提交…")
+                        searching && s.result.truncated && search == null -> t("Searching all history…", "正在搜索全部历史…")
                         searching && !unloadedMatches.isNullOrEmpty() -> {
                             val more = if (search?.complete == false) "+" else ""
-                            "更早的历史里还有 ${unloadedMatches.size}$more 个匹配，点击加载"
+                            t("${unloadedMatches.size}$more more matches in earlier history. Click to load.", "更早的历史里还有 ${unloadedMatches.size}$more 个匹配，点击加载")
                         }
-                        loadingMore -> "正在加载更早的提交…"
+                        loadingMore -> t("Loading earlier commits…", "正在加载更早的提交…")
                         else -> null
                     }
                     if (pathFilter != null) {
@@ -556,14 +556,14 @@ private fun PathFilterBar(path: String, result: LoadResult, onClear: () -> Unit)
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text("只看", fontSize = TypeScale.Small, color = Palette.Muted)
+        Text(t("Only", "只看"), fontSize = TypeScale.Small, color = Palette.Muted)
         Text(path, fontSize = TypeScale.Small, fontFamily = CodeFont, maxLines = 1, overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f, fill = false))
         val count = result.commits.size
-        Text(if (result.truncated) "已加载 $count 个改动它的提交" else "$count 个改动它的提交", fontSize = TypeScale.Small,
+        Text(if (result.truncated) t("Loaded ${countOf(count, "commit")} that touch it", "已加载 $count 个改动它的提交") else t("${countOf(count, "commit")} touch it", "$count 个改动它的提交"), fontSize = TypeScale.Small,
             color = Palette.Muted, maxLines = 1)
         Spacer(Modifier.weight(1f))
-        Text("显示全部提交", fontSize = TypeScale.Small, color = Palette.Link, modifier = Modifier.clickable(onClick = onClear))
+        Text(t("Show all commits", "显示全部提交"), fontSize = TypeScale.Small, color = Palette.Link, modifier = Modifier.clickable(onClick = onClear))
     }
 }
 
@@ -605,17 +605,17 @@ private fun Welcome(loading: Boolean, recent: List<String>, onRecent: (String) -
                         GitVizMark(size = 40.dp)
                         Text("GitViz", fontSize = 28.sp, fontWeight = FontWeight.SemiBold)
                     }
-                    Text("选择一个本地 git 仓库，查看它的分支和提交。", fontSize = TypeScale.Body, color = Palette.Muted)
+                    Text(t("Choose a local git repository to see its branches and commits.", "选择一个本地 git 仓库，查看它的分支和提交。"), fontSize = TypeScale.Body, color = Palette.Muted)
                 }
                 val shape = RoundedCornerShape(6.dp)
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        "打开仓库…", fontSize = TypeScale.Body, fontWeight = FontWeight.SemiBold, color = Palette.OnAccent,
+                        t("Open repository…", "打开仓库…"), fontSize = TypeScale.Body, fontWeight = FontWeight.SemiBold, color = Palette.OnAccent,
                         modifier = Modifier.clip(shape).background(Palette.Accent, shape).clickable(onClick = onOpen)
                             .padding(horizontal = 16.dp, vertical = 8.dp),
                     )
                     Text(
-                        "克隆仓库", fontSize = TypeScale.Body,
+                        t("Clone repository", "克隆仓库"), fontSize = TypeScale.Body,
                         modifier = Modifier.clip(shape).border(1.dp, Palette.Line, shape).clickable(onClick = onClone)
                             .padding(horizontal = 16.dp, vertical = 8.dp),
                     )
@@ -623,7 +623,7 @@ private fun Welcome(loading: Boolean, recent: List<String>, onRecent: (String) -
                 if (recent.isNotEmpty()) {
                     Column {
                         HorizontalDivider()
-                        Text("最近打开", fontSize = TypeScale.Small, color = Palette.Muted, modifier = Modifier.padding(vertical = 8.dp))
+                        Text(t("Recent", "最近打开"), fontSize = TypeScale.Small, color = Palette.Muted, modifier = Modifier.padding(vertical = 8.dp))
                         for (path in recent) {
                             Row(
                                 Modifier.fillMaxWidth().height(36.dp).clip(RoundedCornerShape(5.dp)).hoverRow()
@@ -669,19 +669,19 @@ internal fun Toolbar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Text(state?.repo?.displayName ?: "打开仓库", fontWeight = FontWeight.SemiBold, fontSize = TypeScale.Title, maxLines = 1)
+            Text(state?.repo?.displayName ?: t("Open repository", "打开仓库"), fontWeight = FontWeight.SemiBold, fontSize = TypeScale.Title, maxLines = 1)
             Icon(Icons.ChevronDown, Palette.Muted, size = 10.dp, strokeWidth = 3f)
         }
         Spacer(Modifier.weight(1f))
         if (loading) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
         if (state != null) {
             Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                ToolButton("刷新", Icons.Refresh, enabled = !loading, onClick = onRefresh)
+                ToolButton(t("Refresh", "刷新"), Icons.Refresh, enabled = !loading, onClick = onRefresh)
                 val canSync = !loading && !netBusy && state.repo.workTree != null
-                ToolButton("拉取", Icons.Pull, enabled = canSync, onClick = onPull)
-                ToolButton("推送", Icons.Push, enabled = canSync, onClick = onPush)
-                ToolButton("新建分支", Icons.Branch, enabled = canSync, onClick = onNewBranch)
-                ToolButton("储藏", Icons.Stash, enabled = canSync && canStash, onClick = onStash)
+                ToolButton(t("Pull", "拉取"), Icons.Pull, enabled = canSync, onClick = onPull)
+                ToolButton(t("Push", "推送"), Icons.Push, enabled = canSync, onClick = onPush)
+                ToolButton(t("New branch", "新建分支"), Icons.Branch, enabled = canSync, onClick = onNewBranch)
+                ToolButton(t("Stash", "储藏"), Icons.Stash, enabled = canSync && canStash, onClick = onStash)
             }
             SearchField(query, onQuery)
         }
@@ -708,7 +708,7 @@ private fun SearchField(value: String, onChange: (String) -> Unit) {
             ) {
                 Icon(Icons.Search, Palette.Faint, size = 14.dp)
                 Box(Modifier.weight(1f)) {
-                    if (value.isEmpty()) Text("搜索提交、分支、标签", fontSize = TypeScale.Body, color = Palette.Faint, maxLines = 1)
+                    if (value.isEmpty()) Text(t("Search commits, branches, tags", "搜索提交、分支、标签"), fontSize = TypeScale.Body, color = Palette.Faint, maxLines = 1)
                     field()
                 }
             }
@@ -731,14 +731,14 @@ internal fun StatusBar(state: RepoState, loading: Boolean = false, onCancel: (()
         val count = state.result.commits.size
         Text(
             when {
-                loading -> "已加载 $count 个提交 · 正在加载更早的…"
-                state.result.truncated -> "已加载 $count 个提交 · 往下滚继续加载"
-                else -> "$count 个提交"
+                loading -> t("Loaded ${countOf(count, "commit")} · loading earlier…", "已加载 $count 个提交 · 正在加载更早的…")
+                state.result.truncated -> t("Loaded ${countOf(count, "commit")} · scroll to load more", "已加载 $count 个提交 · 往下滚继续加载")
+                else -> t(countOf(count, "commit"), "$count 个提交")
             },
             fontSize = TypeScale.Caption, color = Palette.Faint, maxLines = 1,
         )
         if (onCancel != null) {
-            Text("取消", fontSize = TypeScale.Caption, color = Palette.Link, modifier = Modifier.clickable(onClick = onCancel))
+            Text(t("Cancel", "取消"), fontSize = TypeScale.Caption, color = Palette.Link, modifier = Modifier.clickable(onClick = onCancel))
         }
     }
 }

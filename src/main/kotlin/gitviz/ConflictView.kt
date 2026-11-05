@@ -49,7 +49,7 @@ internal fun ConflictView(
     fun apply(op: GitCli.() -> GitResult) {
         scope.launch {
             val result = withContext(Dispatchers.IO) { cli.op() }
-            if (!result.ok) onFailure("保存失败", errorSummary(result.output))
+            if (!result.ok) onFailure(t("Save failed", "保存失败"), errorSummary(result.output))
             onChanged()
         }
     }
@@ -60,12 +60,12 @@ internal fun ConflictView(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(operation?.let { "正在${it.label}" } ?: "有冲突", fontSize = TypeScale.Heading, fontWeight = FontWeight.SemiBold)
-            Text("已解决 ${total - files.size} / $total", fontSize = TypeScale.Small, color = Palette.Muted)
+            Text(operation?.running ?: t("Conflicts", "有冲突"), fontSize = TypeScale.Heading, fontWeight = FontWeight.SemiBold)
+            Text(t("Resolved ${total - files.size} / $total", "已解决 ${total - files.size} / $total"), fontSize = TypeScale.Small, color = Palette.Muted)
             Spacer(Modifier.weight(1f))
             if (operation != null) {
-                BarButton("放弃", enabled = true, primary = false, onClick = onAbort)
-                BarButton("完成${operation.label}", enabled = files.isEmpty(), primary = true, onClick = onFinish)
+                BarButton(t("Abort", "放弃"), enabled = true, primary = false, onClick = onAbort)
+                BarButton(operation.finish, enabled = files.isEmpty(), primary = true, onClick = onFinish)
             }
         }
         HorizontalDivider()
@@ -86,7 +86,7 @@ internal fun ConflictView(
             VerticalDivider()
             val pane = Modifier.weight(1f).fillMaxHeight().background(Palette.Panel)
             if (current == null) {
-                Message(if (operation != null) "冲突都解决了，点「完成${operation.label}」结束" else "冲突都解决了", pane)
+                Message(if (operation != null) t("All conflicts resolved. Click “${operation.finish}” to finish.", "冲突都解决了，点「${operation.finish}」结束") else t("All conflicts resolved", "冲突都解决了"), pane)
             } else {
                 Loaded(current, pane, { cli.readWorkingFile(current.path)?.let(::parseConflict) ?: Unparsed }) { content ->
                     if (content is ConflictFile) {
@@ -121,10 +121,10 @@ private fun WholeFilePane(file: WorkingFile, modifier: Modifier, onPick: (ours: 
     Box(modifier, contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(file.path, fontSize = TypeScale.Small, fontFamily = CodeFont, color = Palette.Muted)
-            Text("这个文件不能按块合并，选择保留哪一边的版本。", fontSize = TypeScale.Body)
+            Text(t("This file can't be merged hunk by hunk. Choose which side to keep.", "这个文件不能按块合并，选择保留哪一边的版本。"), fontSize = TypeScale.Body)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                BarButton("用当前分支", enabled = true, primary = false) { onPick(true) }
-                BarButton("用传入分支", enabled = true, primary = false) { onPick(false) }
+                BarButton(t("Use current", "用当前分支"), enabled = true, primary = false) { onPick(true) }
+                BarButton(t("Use incoming", "用传入分支"), enabled = true, primary = false) { onPick(false) }
             }
         }
     }
@@ -144,9 +144,9 @@ private fun HunkPane(path: String, file: ConflictFile, modifier: Modifier, onSav
             Modifier.fillMaxWidth().height(30.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            ColumnTitle("当前 ${file.oursLabel}", Palette.Link, Modifier.weight(1f))
-            ColumnTitle("合并结果", Palette.Ink, Modifier.weight(1f))
-            ColumnTitle("传入 ${file.theirsLabel}", Palette.AccentInk, Modifier.weight(1f))
+            ColumnTitle(t("Current ${file.oursLabel}", "当前 ${file.oursLabel}"), Palette.Link, Modifier.weight(1f))
+            ColumnTitle(t("Result", "合并结果"), Palette.Ink, Modifier.weight(1f))
+            ColumnTitle(t("Incoming ${file.theirsLabel}", "传入 ${file.theirsLabel}"), Palette.AccentInk, Modifier.weight(1f))
         }
         HorizontalDivider()
         LazyColumn(Modifier.fillMaxWidth().weight(1f), contentPadding = PaddingValues(vertical = 6.dp)) {
@@ -163,8 +163,8 @@ private fun HunkPane(path: String, file: ConflictFile, modifier: Modifier, onSav
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text("这个文件 ${choices.size} / $hunkCount 块已选择", fontSize = TypeScale.Small, color = Palette.Muted, modifier = Modifier.weight(1f))
-            BarButton("保存这个文件", enabled = choices.size == hunkCount, primary = true) { onSave(resolveConflict(file, choices)) }
+            Text(t("${choices.size} / $hunkCount hunks chosen in this file", "这个文件 ${choices.size} / $hunkCount 块已选择"), fontSize = TypeScale.Small, color = Palette.Muted, modifier = Modifier.weight(1f))
+            BarButton(t("Save file", "保存这个文件"), enabled = choices.size == hunkCount, primary = true) { onSave(resolveConflict(file, choices)) }
         }
     }
 }
@@ -187,7 +187,7 @@ private fun SameBlock(lines: List<String>, isFirst: Boolean, isLast: Boolean) {
     val tail = if (isLast) emptyList() else lines.takeLast(ContextLines)
     val fold = lines.size > head.size + tail.size
     val shown = if (fold) head + tail else lines
-    if (fold) Text("⋯ 省略 ${lines.size - shown.size} 行", fontSize = TypeScale.Caption, color = Palette.Faint, modifier = Modifier.padding(start = 14.dp))
+    if (fold) Text(t("⋯ ${lines.size - shown.size} lines hidden", "⋯ 省略 ${lines.size - shown.size} 行"), fontSize = TypeScale.Caption, color = Palette.Faint, modifier = Modifier.padding(start = 14.dp))
     for (line in shown) {
         Row(Modifier.fillMaxWidth()) {
             repeat(3) {
@@ -204,7 +204,7 @@ private fun HunkBlock(hunk: ConflictHunk, choice: Choice?, onChoose: (Choice) ->
             CodeCell(hunk.ours, Palette.Link, Modifier.weight(1f))
             if (choice == null) {
                 Box(Modifier.weight(1f).fillMaxHeight().background(Palette.Modified.copy(alpha = 0.14f)).padding(start = 14.dp)) {
-                    Text("未解决：在下方选择", fontSize = TypeScale.Small, lineHeight = 18.sp, color = Palette.Modified, maxLines = 1)
+                    Text(t("Unresolved: choose below", "未解决：在下方选择"), fontSize = TypeScale.Small, lineHeight = 18.sp, color = Palette.Modified, maxLines = 1)
                 }
             } else {
                 CodeCell(hunk.lines(choice), Palette.Ink, Modifier.weight(1f))
@@ -216,7 +216,7 @@ private fun HunkBlock(hunk: ConflictHunk, choice: Choice?, onChoose: (Choice) ->
             horizontalArrangement = Arrangement.Center,
         ) {
             Segmented(
-                listOf(Choice.OURS to "用当前分支", Choice.THEIRS to "用传入分支", Choice.BOTH to "两边都保留"),
+                listOf(Choice.OURS to t("Use current", "用当前分支"), Choice.THEIRS to t("Use incoming", "用传入分支"), Choice.BOTH to t("Keep both", "两边都保留")),
                 choice, onSelect = { picked -> picked?.let(onChoose) },
             )
         }
@@ -226,7 +226,7 @@ private fun HunkBlock(hunk: ConflictHunk, choice: Choice?, onChoose: (Choice) ->
 @Composable
 private fun CodeCell(lines: List<String>, color: Color, modifier: Modifier) {
     Column(modifier.fillMaxHeight().background(color.copy(alpha = 0.09f)).padding(start = 14.dp).clipToBounds()) {
-        if (lines.isEmpty()) Text("（空）", fontSize = TypeScale.Small, lineHeight = 18.sp, color = Palette.Faint)
+        if (lines.isEmpty()) Text(t("(empty)", "（空）"), fontSize = TypeScale.Small, lineHeight = 18.sp, color = Palette.Faint)
         for (line in lines) CodeLine(line, color)
     }
 }

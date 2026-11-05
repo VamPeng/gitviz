@@ -15,13 +15,27 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
-enum class NetOp(val running: String, val done: String) {
-    PULL("正在拉取", "已拉取"),
-    PUSH("正在推送", "已推送"),
-    ABORT("正在放弃", "已放弃，回到操作之前"),
+enum class NetOp {
+    PULL, PUSH, ABORT;
+
+    val running: String get() = when (this) {
+        PULL -> t("Pulling", "正在拉取")
+        PUSH -> t("Pushing", "正在推送")
+        ABORT -> t("Aborting", "正在放弃")
+    }
+
+    val done: String get() = when (this) {
+        PULL -> t("Pulled", "已拉取")
+        PUSH -> t("Pushed", "已推送")
+        ABORT -> t("Aborted; back to where you were", "已放弃，回到操作之前")
+    }
 }
 
-private const val ConflictHint = "到「解决冲突」里处理，或者放弃回到操作之前。"
+private val ConflictHint: String
+    get() = t("Resolve them under “Resolve conflicts”, or abort to go back to where you were.", "到「解决冲突」里处理，或者放弃回到操作之前。")
+
+/** running 形如「正在合并」或 Merging，得到「合并失败」或 Merging failed。 */
+private fun failedTitle(running: String): String = t("$running failed", "${running.removePrefix("正在")}失败")
 
 enum class NetState { RUNNING, DONE, FAILED }
 
@@ -39,26 +53,26 @@ internal fun describe(op: NetOp, result: GitResult): NetStatus {
     return when (result.failure) {
         null -> NetStatus(op.done, lastLine, NetState.DONE)
         GitFailure.REJECTED ->
-            NetStatus("推送被拒绝", "远程有你本地没有的新提交。先拉取，再推送。", NetState.FAILED, NetOp.PULL, "先拉取")
+            NetStatus(t("Push rejected", "推送被拒绝"), t("The remote has commits you don't have. Pull first, then push.", "远程有你本地没有的新提交。先拉取，再推送。"), NetState.FAILED, NetOp.PULL, t("Pull first", "先拉取"))
         GitFailure.AUTH ->
-            NetStatus("连不上远程", "验证失败。检查 SSH 密钥和 ssh-agent，或访问令牌。", NetState.FAILED, op, "重试")
+            NetStatus(t("Can't reach the remote", "连不上远程"), t("Authentication failed. Check your SSH key and ssh-agent, or your access token.", "验证失败。检查 SSH 密钥和 ssh-agent，或访问令牌。"), NetState.FAILED, op, t("Retry", "重试"))
         GitFailure.CONFLICT ->
-            NetStatus("拉取时有冲突", ConflictHint, NetState.FAILED, NetOp.ABORT, "放弃")
+            NetStatus(t("Conflicts while pulling", "拉取时有冲突"), ConflictHint, NetState.FAILED, NetOp.ABORT, t("Abort", "放弃"))
         GitFailure.NOT_MERGED, GitFailure.OTHER ->
-            NetStatus("${op.running.removePrefix("正在")}失败", errorSummary(result.output), NetState.FAILED, op, "重试")
+            NetStatus(failedTitle(op.running), errorSummary(result.output), NetState.FAILED, op, t("Retry", "重试"))
     }
 }
 
 /** 分支、合并这些本地操作的结果。running 形如「正在合并」。 */
 internal fun describeAction(running: String, done: String, result: GitResult): NetStatus = when (result.failure) {
     null -> NetStatus(done, "", NetState.DONE)
-    GitFailure.CONFLICT -> NetStatus("有冲突", ConflictHint, NetState.FAILED, NetOp.ABORT, "放弃")
+    GitFailure.CONFLICT -> NetStatus(t("Conflicts", "有冲突"), ConflictHint, NetState.FAILED, NetOp.ABORT, t("Abort", "放弃"))
     GitFailure.NOT_MERGED -> NetStatus(
-        "没有删除",
-        "这个分支有还没合并到别处的提交，删除会丢掉它们。确定不要了，右键分支选「强制删除…」。",
+        t("Not deleted", "没有删除"),
+        t("This branch has commits that aren't merged anywhere else, and deleting it would lose them. If you're sure, right-click the branch and choose “Force delete…”.", "这个分支有还没合并到别处的提交，删除会丢掉它们。确定不要了，右键分支选「强制删除…」。"),
         NetState.FAILED,
     )
-    else -> NetStatus("${running.removePrefix("正在")}失败", errorSummary(result.output), NetState.FAILED)
+    else -> NetStatus(failedTitle(running), errorSummary(result.output), NetState.FAILED)
 }
 
 @Composable
@@ -77,7 +91,7 @@ internal fun NetBanner(status: NetStatus, onAction: (NetOp) -> Unit, onDismiss: 
         Text(status.detail, fontSize = TypeScale.Small, color = Palette.Muted, maxLines = 2,
             overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
         status.next?.let { op -> BannerButton(status.nextLabel) { onAction(op) } }
-        if (failed) BannerButton("关闭", onDismiss)
+        if (failed) BannerButton(t("Close", "关闭"), onDismiss)
     }
 }
 

@@ -21,8 +21,8 @@ import androidx.compose.ui.unit.dp
 
 internal fun askStash(count: Int, a: GitActions) {
     a.ask(
-        DialogSpec("储藏改动", "把工作区的 $count 个改动收起来，之后可以再恢复。", "储藏", input = "说明（可选）", optional = true) { message, _ ->
-            a.run("正在储藏", "已储藏 $count 个文件") { stash(message) }
+        DialogSpec(t("Stash changes", "储藏改动"), t("Set aside ${countOf(count, "change")} from the working tree. You can restore them later.", "把工作区的 $count 个改动收起来，之后可以再恢复。"), t("Stash", "储藏"), input = t("Message (optional)", "说明（可选）"), optional = true) { message, _ ->
+            a.run(t("Stashing", "正在储藏"), t("Stashed ${countOf(count, "file")}", "已储藏 $count 个文件")) { stash(message) }
         },
     )
 }
@@ -42,11 +42,11 @@ internal fun StashView(
     Row(modifier) {
         Column(Modifier.width(340.dp).fillMaxHeight()) {
             Row(Modifier.fillMaxWidth().height(28.dp).padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("储藏 · ${stashes.size}", fontSize = TypeScale.Small, color = Palette.Muted)
+                Text(t("Stashes · ${stashes.size}", "储藏 · ${stashes.size}"), fontSize = TypeScale.Small, color = Palette.Muted)
             }
             HorizontalDivider()
             if (stashes.isEmpty()) {
-                Text("没有储藏。点工具栏的「储藏」，可以把工作区的改动先收起来。", fontSize = TypeScale.Body, color = Palette.Muted,
+                Text(t("No stashes. Click “Stash” in the toolbar to set aside your working tree changes.", "没有储藏。点工具栏的「储藏」，可以把工作区的改动先收起来。"), fontSize = TypeScale.Body, color = Palette.Muted,
                     modifier = Modifier.padding(16.dp))
             }
             LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
@@ -84,14 +84,14 @@ private fun StashDetail(cli: GitCli, entry: StashEntry, a: GitActions, modifier:
         ) {
             Column(Modifier.weight(1f)) {
                 Text(entry.message, fontSize = TypeScale.Heading, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("储藏于 ${entry.branch}，${formatTime(entry.timeSeconds)}", fontSize = TypeScale.Small, color = Palette.Muted,
+                Text(t("Stashed on ${entry.branch}, ${formatTime(entry.timeSeconds)}", "储藏于 ${entry.branch}，${formatTime(entry.timeSeconds)}"), fontSize = TypeScale.Small, color = Palette.Muted,
                     modifier = Modifier.padding(top = 4.dp))
             }
-            StashButton("应用", Palette.Ink, null) { a.run("正在应用", "已应用，改动回到工作区") { applyStash(entry) } }
-            StashButton("弹出", Palette.OnAccent, Palette.Accent) { a.run("正在弹出", "已弹出，改动回到工作区") { popStash(entry) } }
-            StashButton("删除", Palette.Removed, null) {
-                a.ask(DialogSpec("删除储藏", "「${entry.message}」会被永久删除，无法恢复。", "删除", danger = true) { _, _ ->
-                    a.run("正在删除", "已删除储藏") { dropStash(entry) }
+            StashButton(t("Apply", "应用"), Palette.Ink, null) { a.run(t("Applying", "正在应用"), t("Applied; changes are back in the working tree", "已应用，改动回到工作区")) { applyStash(entry) } }
+            StashButton(t("Pop", "弹出"), Palette.OnAccent, Palette.Accent) { a.run(t("Popping", "正在弹出"), t("Popped; changes are back in the working tree", "已弹出，改动回到工作区")) { popStash(entry) } }
+            StashButton(t("Delete", "删除"), Palette.Removed, null) {
+                a.ask(DialogSpec(t("Delete stash", "删除储藏"), t("“${entry.message}” will be permanently deleted.", "「${entry.message}」会被永久删除，无法恢复。"), t("Delete", "删除"), danger = true) { _, _ ->
+                    a.run(t("Deleting", "正在删除"), t("Deleted stash", "已删除储藏")) { dropStash(entry) }
                 })
             }
         }
@@ -115,7 +115,7 @@ private fun StashDetail(cli: GitCli, entry: StashEntry, a: GitActions, modifier:
                 VerticalDivider()
                 Column(Modifier.weight(1f).fillMaxHeight().background(Palette.Panel)) {
                     if (current == null) {
-                        Message("这条储藏没有文件", Modifier.fillMaxSize())
+                        Message(t("This stash has no files", "这条储藏没有文件"), Modifier.fillMaxSize())
                     } else {
                         Row(
                             Modifier.fillMaxWidth().height(28.dp).padding(start = 14.dp, end = 12.dp),
@@ -124,7 +124,7 @@ private fun StashDetail(cli: GitCli, entry: StashEntry, a: GitActions, modifier:
                         ) {
                             Text(current.path, fontSize = TypeScale.Small, fontFamily = CodeFont, color = Palette.Muted, maxLines = 1,
                                 overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                            Segmented(listOf(DiffMode.Unified to "统一", DiffMode.Split to "并排"), mode) { mode = it }
+                            Segmented(listOf(DiffMode.Unified to t("Unified", "统一"), DiffMode.Split to t("Split", "并排")), mode) { mode = it }
                         }
                         HorizontalDivider()
                         val content = Modifier.fillMaxWidth().weight(1f)

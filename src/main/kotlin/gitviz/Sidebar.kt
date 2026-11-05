@@ -34,7 +34,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
-private val Sections = listOf("本地分支" to RefKind.BRANCH, "远程" to RefKind.REMOTE, "标签" to RefKind.TAG)
+private val Sections get() = listOf(t("Branches", "本地分支") to RefKind.BRANCH, t("Remotes", "远程") to RefKind.REMOTE, t("Tags", "标签") to RefKind.TAG)
 
 /** 左侧引用树。点引用跳到它指向的提交，提交还没加载时会先加载到它。 */
 @Composable
@@ -100,7 +100,7 @@ fun RefSidebar(
             val stashKey = "${RefKind.STASH}:"
             val stashExpanded = filtering || stashKey !in collapsed
             item(key = stashKey) {
-                SectionHeader("储藏", shownStashes.size, stashExpanded, onClick = { toggle(stashKey) })
+                SectionHeader(t("Stashes", "储藏"), shownStashes.size, stashExpanded, onClick = { toggle(stashKey) })
             }
             if (stashExpanded) {
                 items(shownStashes, key = { stashKey + it.id }) { entry ->

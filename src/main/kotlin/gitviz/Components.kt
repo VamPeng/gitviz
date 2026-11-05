@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -76,15 +77,15 @@ fun ToolButton(label: String, icon: String, enabled: Boolean, onClick: () -> Uni
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
     Column(
-        Modifier.width(54.dp).height(42.dp).alpha(if (enabled) 1f else 0.4f).clip(RoundedCornerShape(6.dp))
+        Modifier.widthIn(min = 54.dp).height(42.dp).alpha(if (enabled) 1f else 0.4f).clip(RoundedCornerShape(6.dp))
             .background(if (hovered && enabled) Palette.Raised else Color.Transparent)
             .hoverable(interaction, enabled)
-            .clickable(enabled = enabled, onClick = onClick),
+            .clickable(enabled = enabled, onClick = onClick).padding(horizontal = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
         Icon(icon, Palette.Ink)
-        Text(label, fontSize = TypeScale.Caption, color = Palette.Muted, modifier = Modifier.padding(top = 2.dp))
+        Text(label, fontSize = TypeScale.Caption, color = Palette.Muted, maxLines = 1, softWrap = false, modifier = Modifier.padding(top = 2.dp))
     }
 }
 

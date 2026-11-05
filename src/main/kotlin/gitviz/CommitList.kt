@@ -52,14 +52,14 @@ internal fun formatTime(seconds: Long): String = fullDate.format(Instant.ofEpoch
  */
 internal fun relativeTime(seconds: Long, nowSeconds: Long, zone: ZoneId = ZoneId.systemDefault()): String {
     val diff = nowSeconds - seconds
-    if (diff < 60) return "刚刚"
-    if (diff < 3600) return "${diff / 60} 分钟前"
-    if (diff < 86400) return "${diff / 3600} 小时前"
+    if (diff < 60) return t("just now", "刚刚")
+    if (diff < 3600) return t("${diff / 60}m ago", "${diff / 60} 分钟前")
+    if (diff < 86400) return t("${diff / 3600}h ago", "${diff / 3600} 小时前")
     val then = Instant.ofEpochSecond(seconds).atZone(zone).toLocalDate()
     val days = ChronoUnit.DAYS.between(then, Instant.ofEpochSecond(nowSeconds).atZone(zone).toLocalDate())
     return when {
-        days <= 1 -> "昨天"
-        days < 30 -> "$days 天前"
+        days <= 1 -> t("yesterday", "昨天")
+        days < 30 -> t("${days}d ago", "$days 天前")
         else -> shortDate.format(then)
     }
 }
@@ -173,10 +173,10 @@ private fun ColumnHeader(lanesShown: Int) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Spacer(Modifier.width(LaneWidth * lanesShown + 10.dp))
-        Title("描述", Modifier.weight(1f))
-        Title("作者", Modifier.width(AuthorColumn).padding(start = 8.dp))
-        Title("时间", Modifier.width(DateColumn).padding(start = 8.dp))
-        Title("哈希", Modifier.width(HashColumn).padding(start = 8.dp))
+        Title(t("Description", "描述"), Modifier.weight(1f))
+        Title(t("Author", "作者"), Modifier.width(AuthorColumn).padding(start = 8.dp))
+        Title(t("Date", "时间"), Modifier.width(DateColumn).padding(start = 8.dp))
+        Title(t("Hash", "哈希"), Modifier.width(HashColumn).padding(start = 8.dp))
     }
 }
 

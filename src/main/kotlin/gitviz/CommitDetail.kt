@@ -55,7 +55,7 @@ internal fun CommitDetail(
     onShowFileHistory: (String) -> Unit = {},
 ) {
     if (commit == null) {
-        Box(modifier, contentAlignment = Alignment.Center) { Text("选择一个提交") }
+        Box(modifier, contentAlignment = Alignment.Center) { Text(t("Select a commit", "选择一个提交")) }
         return
     }
     // 刷新后 repo 是新对象，旧的 FileChange 不能再用，所以 repo 也要作为 key
@@ -123,7 +123,7 @@ private fun CommitHeader(commit: CommitInfo, onOpenCommit: (String) -> Unit) {
                 Text(formatTime(commit.timeSeconds), fontSize = TypeScale.Small, color = Palette.Muted, maxLines = 1)
                 if (commit.parents.isNotEmpty()) {
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("父提交", fontSize = TypeScale.Small, color = Palette.Muted)
+                        Text(t("Parents", "父提交"), fontSize = TypeScale.Small, color = Palette.Muted)
                         for (parent in commit.parents) {
                             Text(parent.take(7), fontSize = TypeScale.Small, fontFamily = CodeFont, color = Palette.Link,
                                 modifier = Modifier.clickable { onOpenCommit(parent) })
@@ -135,7 +135,7 @@ private fun CommitHeader(commit: CommitInfo, onOpenCommit: (String) -> Unit) {
                 // 作者名一样时只说时间，免得同一个名字写两遍
                 val who = if (commit.committer == commit.author && commit.committerEmail == commit.email) ""
                     else "${commit.committer} <${commit.committerEmail}> "
-                Text("提交者 $who· ${formatTime(commit.commitTimeSeconds)}", fontSize = TypeScale.Small, color = Palette.Faint,
+                Text(t("Committed by $who· ${formatTime(commit.commitTimeSeconds)}", "提交者 $who· ${formatTime(commit.commitTimeSeconds)}"), fontSize = TypeScale.Small, color = Palette.Faint,
                     maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
             }
         }
@@ -159,7 +159,7 @@ private fun CopyHash(commit: CommitInfo) {
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Text(commit.id.take(7), fontSize = TypeScale.Small, fontFamily = CodeFont)
-        Text(if (copied) "已复制" else "复制", fontSize = TypeScale.Small, color = if (copied) Palette.Added else Palette.Muted)
+        Text(if (copied) t("Copied", "已复制") else t("Copy", "复制"), fontSize = TypeScale.Small, color = if (copied) Palette.Added else Palette.Muted)
     }
 }
 
@@ -181,7 +181,7 @@ private fun ChangedFiles(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text("${list?.size ?: 0} 个文件", fontSize = TypeScale.Small, color = Palette.Muted, modifier = Modifier.weight(1f))
+            Text(t(countOf(list?.size ?: 0, "file"), "${list?.size ?: 0} 个文件"), fontSize = TypeScale.Small, color = Palette.Muted, modifier = Modifier.weight(1f))
             if (list != null) {
                 Text("+${list.sumOf { it.additions }}", fontSize = TypeScale.Small, color = Palette.Added)
                 Text("−${list.sumOf { it.deletions }}", fontSize = TypeScale.Small, color = Palette.Removed)
@@ -194,18 +194,18 @@ private fun ChangedFiles(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text("对比", fontSize = TypeScale.Small, color = Palette.Muted)
-                Segmented(commit.parents.mapIndexed { i, id -> i to "父 ${i + 1} · ${id.take(7)}" }, parentIndex, onSelect = onParent)
+                Text(t("Compare", "对比"), fontSize = TypeScale.Small, color = Palette.Muted)
+                Segmented(commit.parents.mapIndexed { i, id -> i to t("Parent ${i + 1} · ${id.take(7)}", "父 ${i + 1} · ${id.take(7)}") }, parentIndex, onSelect = onParent)
             }
             HorizontalDivider()
         }
         LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
             if (failure != null) item {
-                Text("读取改动失败：${failure.message ?: failure}", color = MaterialTheme.colorScheme.error,
+                Text(t("Couldn't read changes: ${failure.message ?: failure}", "读取改动失败：${failure.message ?: failure}"), color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.padding(12.dp))
             }
-            else if (list == null) item { Text("加载中…", Modifier.padding(14.dp), fontSize = TypeScale.Body) }
-            else if (list.isEmpty()) item { Text("没有文件改动", Modifier.padding(14.dp), fontSize = TypeScale.Body) }
+            else if (list == null) item { Text(t("Loading…", "加载中…"), Modifier.padding(14.dp), fontSize = TypeScale.Body) }
+            else if (list.isEmpty()) item { Text(t("No file changes", "没有文件改动"), Modifier.padding(14.dp), fontSize = TypeScale.Body) }
             else items(list) { f -> FileRow(f, f == selected, onSelect) }
         }
     }
@@ -269,9 +269,9 @@ private fun FilePane(
         ) {
             Text(file.displayPath, fontSize = TypeScale.Small, fontFamily = CodeFont, color = Palette.Muted, maxLines = 1,
                 overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            Segmented(listOf(FileTab.Diff to "改动", FileTab.History to "历史", FileTab.Blame to "Blame"), tab, onSelect = onTab)
+            Segmented(listOf(FileTab.Diff to t("Changes", "改动"), FileTab.History to t("History", "历史"), FileTab.Blame to "Blame"), tab, onSelect = onTab)
             if (tab == FileTab.Diff) {
-                Segmented(listOf(DiffMode.Unified to "统一", DiffMode.Split to "并排"), mode, onSelect = onMode)
+                Segmented(listOf(DiffMode.Unified to t("Unified", "统一"), DiffMode.Split to t("Split", "并排")), mode, onSelect = onMode)
             }
         }
         HorizontalDivider()
@@ -293,7 +293,7 @@ internal fun <T : Any> Loaded(key: Any, modifier: Modifier, load: () -> T, conte
     when {
         current == null -> Box(modifier, contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(24.dp)) }
         current.isFailure -> Box(modifier, contentAlignment = Alignment.Center) {
-            Text("读取失败：${current.exceptionOrNull()?.message}", fontSize = TypeScale.Body, color = Palette.Removed)
+            Text(t("Couldn't read: ${current.exceptionOrNull()?.message}", "读取失败：${current.exceptionOrNull()?.message}"), fontSize = TypeScale.Body, color = Palette.Removed)
         }
         else -> content(current.getOrThrow())
     }
@@ -429,7 +429,7 @@ private fun HistoryContent(
 ) {
     Loaded(file to commit.id, modifier, { repo.fileHistory(commit.id, file.path) }) { history ->
         if (history.isEmpty()) {
-            Message("这个提交里没有这个文件的历史", modifier)
+            Message(t("No history for this file in this commit", "这个提交里没有这个文件的历史"), modifier)
             return@Loaded
         }
         val listState = rememberLazyListState()
@@ -437,7 +437,7 @@ private fun HistoryContent(
         Box(modifier) {
             LazyColumn(Modifier.fillMaxSize(), state = listState) {
                 item(key = "show-in-graph") {
-                    Text("在主图中只看这个文件", fontSize = TypeScale.Small, color = Palette.Link,
+                    Text(t("Show only this file in the graph", "在主图中只看这个文件"), fontSize = TypeScale.Small, color = Palette.Link,
                         modifier = Modifier.clickable { onShowFileHistory(file.path) }.padding(horizontal = 14.dp, vertical = 8.dp))
                     HorizontalDivider()
                 }
@@ -464,12 +464,12 @@ private fun HistoryContent(
 @Composable
 private fun BlameContent(repo: GitRepo, commit: CommitInfo, file: FileChange, onOpenCommit: (String) -> Unit, modifier: Modifier) {
     if (file.type == DiffEntry.ChangeType.DELETE) {
-        Message("这个文件在这个提交里被删除了", modifier)
+        Message(t("This file was deleted in this commit", "这个文件在这个提交里被删除了"), modifier)
         return
     }
     Loaded(file to commit.id, modifier, { repo.blame(commit.id, file.path) }) { lines ->
         if (lines.isEmpty()) {
-            Message("二进制文件或空文件，没有可显示的行", modifier)
+            Message(t("Binary or empty file; nothing to show", "二进制文件或空文件，没有可显示的行"), modifier)
             return@Loaded
         }
         val longest = remember(lines) { lines.maxOf { it.text.length } }

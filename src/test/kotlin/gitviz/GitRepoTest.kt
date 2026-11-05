@@ -14,6 +14,8 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class GitRepoTest {
+    init { Settings.language = Language.EN }
+
 
     private val dir: File = createTempDirectory("gitviz-test").toFile()
     private val git: Git = Git.init().setDirectory(dir).setInitialBranch("main").call()
@@ -219,7 +221,7 @@ class GitRepoTest {
         GitRepo.open(dir).use { repo ->
             val change = repo.changes(chmod.name).single()
             assertEquals(ModeChange("100644", "100755"), change.modeChange)
-            assertEquals("仅权限 100644 → 100755（加上可执行权限），内容没有变化", emptyDiffMessage(parseDiffLines(repo.diffText(change))))
+            assertEquals("Mode 100644 → 100755 (made executable); content unchanged", emptyDiffMessage(parseDiffLines(repo.diffText(change))))
         }
     }
 

@@ -10,6 +10,8 @@ import kotlin.test.assertTrue
 
 /** 用本地裸仓库当 origin，推送不会碰到任何真实的远程。 */
 class GitCliTest {
+    init { Settings.language = Language.EN }
+
 
     private val root: File = createTempDirectory("gitviz-cli").toFile()
     private val origin = File(root, "origin.git")
@@ -291,7 +293,7 @@ class GitCliTest {
         val result = cli.deleteBranch("wip")
         assertFalse(result.ok)
         assertEquals(GitFailure.NOT_MERGED, result.failure)
-        assertEquals("没有删除", describeAction("正在删除", "已删除", result).title)
+        assertEquals("Not deleted", describeAction("Deleting", "Deleted", result).title)
         assertTrue("wip" in git(work, "branch"))
 
         assertTrue(cli.deleteBranch("wip", force = true).ok)
@@ -540,7 +542,7 @@ class GitCliTest {
     @Test
     fun `repo menu cannot reopen the current repository`() {
         val items = labels(repoMenu("/x/a", listOf("/x/a", "/x/b"), {}, {}, {}))
-        assertEquals(listOf("a" to false, "b" to true, "打开仓库…" to true, "克隆仓库…" to true), items.map { it.label to it.enabled })
+        assertEquals(listOf("a" to false, "b" to true, "Open repository…" to true, "Clone repository…" to true), items.map { it.label to it.enabled })
     }
 
     private fun labels(entries: List<MenuEntry>) = entries.filterIsInstance<MenuItem>()
@@ -551,7 +553,7 @@ class GitCliTest {
     fun `head commit cannot be merged, picked or reset onto itself`() {
         val items = labels(commitMenu(commitInfo("abcdef0123"), isHead = true, "main", noActions))
         assertEquals(
-            setOf("合并到 main…", "Cherry-pick 到 main…", "把 main 重置到这里…"),
+            setOf("Merge into main…", "Cherry-pick onto main…", "Reset main to here…"),
             items.filterNot { it.enabled }.map { it.label }.toSet(),
         )
         assertTrue(labels(commitMenu(commitInfo("abcdef0123"), isHead = false, "main", noActions)).all { it.enabled })
@@ -565,7 +567,7 @@ class GitCliTest {
 
     @Test
     fun `conflicts offer to give up the operation`() {
-        assertEquals(NetOp.ABORT, describeAction("正在合并", "已合并", GitResult(GitFailure.CONFLICT, "CONFLICT")).next)
+        assertEquals(NetOp.ABORT, describeAction("Merging", "Merged", GitResult(GitFailure.CONFLICT, "CONFLICT")).next)
         assertEquals(NetOp.ABORT, describe(NetOp.PULL, GitResult(GitFailure.CONFLICT, "CONFLICT")).next)
     }
 

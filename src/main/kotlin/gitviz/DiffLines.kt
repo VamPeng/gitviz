@@ -70,13 +70,13 @@ data class ModeChange(val old: String, val new: String) {
     val text: String
         get() {
             val note = when {
-                old == "100644" && new == "100755" -> "加上可执行权限"
-                old == "100755" && new == "100644" -> "去掉可执行权限"
-                new == "120000" -> "改成符号链接"
-                old == "120000" -> "符号链接改成普通文件"
+                old == "100644" && new == "100755" -> t("made executable", "加上可执行权限")
+                old == "100755" && new == "100644" -> t("no longer executable", "去掉可执行权限")
+                new == "120000" -> t("now a symlink", "改成符号链接")
+                old == "120000" -> t("symlink is now a regular file", "符号链接改成普通文件")
                 else -> null
             }
-            return "权限 $old → $new" + (note?.let { "（$it）" }.orEmpty())
+            return t("Mode $old → $new", "权限 $old → $new") + (note?.let { t(" ($it)", "（$it）") }.orEmpty())
         }
 }
 
@@ -91,11 +91,11 @@ fun modeChange(lines: List<DiffLine>): ModeChange? {
 /** diff 里没有任何 @@ 段时，说明为什么没有可显示的行。 */
 fun emptyDiffMessage(lines: List<DiffLine>): String {
     val header = lines.filter { it.kind == DiffLineKind.HEADER }.map { it.text }
-    modeChange(lines)?.let { return "仅${it.text}，内容没有变化" }
+    modeChange(lines)?.let { return t("${it.text}; content unchanged", "仅${it.text}，内容没有变化") }
     return when {
-        header.any { it.startsWith("Binary files") || it == "GIT binary patch" } -> "二进制文件，无法显示改动"
-        header.any { it.startsWith("rename from ") } -> "仅重命名，内容没有变化"
-        header.any { it.startsWith("copy from ") } -> "复制的文件，内容没有变化"
-        else -> "没有可显示的文本改动"
+        header.any { it.startsWith("Binary files") || it == "GIT binary patch" } -> t("Binary file; changes can't be shown", "二进制文件，无法显示改动")
+        header.any { it.startsWith("rename from ") } -> t("Renamed only; content unchanged", "仅重命名，内容没有变化")
+        header.any { it.startsWith("copy from ") } -> t("Copied file; content unchanged", "复制的文件，内容没有变化")
+        else -> t("No text changes to show", "没有可显示的文本改动")
     }
 }

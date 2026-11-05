@@ -61,79 +61,79 @@ internal class GitActions(
 
 internal fun commitMenu(c: CommitInfo, isHead: Boolean, branch: String?, a: GitActions): List<MenuEntry> {
     val short = c.id.take(7)
-    val target = branch ?: "当前提交"
+    val target = branch ?: t("HEAD", "当前提交")
     return listOf(
-        MenuItem("检出这个提交") {
-            a.ask(DialogSpec("检出提交", "工作区会切换到 $short，不在任何分支上。", "检出") { _, _ ->
-                a.run("正在检出", "已检出 $short") { checkout(c.id) }
+        MenuItem(t("Check out this commit", "检出这个提交")) {
+            a.ask(DialogSpec(t("Check out commit", "检出提交"), t("The working tree will switch to $short, not on any branch.", "工作区会切换到 $short，不在任何分支上。"), t("Check out", "检出")) { _, _ ->
+                a.run(t("Checking out", "正在检出"), t("Checked out $short", "已检出 $short")) { checkout(c.id) }
             })
         },
-        MenuItem("新建分支…") { askNewBranch(c, a) },
-        MenuItem("打标签…") {
-            a.ask(DialogSpec("打标签", "给 $short 打一个标签。", "创建标签", input = "标签名") { name, _ ->
-                a.run("正在创建标签", "已创建标签 $name") { tag(name, c.id) }
-            })
-        },
-        MenuSeparator,
-        MenuItem("合并到 $target…", enabled = !isHead) {
-            a.ask(DialogSpec("合并", "把 $short 合并到 $target。", "合并") { _, _ ->
-                a.run("正在合并", "已合并 $short") { merge(c.id) }
-            })
-        },
-        MenuItem("Cherry-pick 到 $target…", enabled = !isHead) {
-            a.ask(DialogSpec("Cherry-pick", "把 $short 的改动应用到 $target。", "应用") { _, _ ->
-                a.run("正在应用", "已应用 $short") { cherryPick(c) }
-            })
-        },
-        MenuItem("回滚这个提交…") {
-            a.ask(DialogSpec("回滚提交", "在 $target 上新增一个提交，撤销 $short 的改动。", "回滚") { _, _ ->
-                a.run("正在回滚", "已回滚 $short") { revert(c) }
-            })
-        },
-        MenuItem("把 $target 重置到这里…", enabled = !isHead, danger = true) {
-            a.ask(DialogSpec("重置 $target", "把 $target 移到 $short。", "重置", danger = true, modes = true) { _, mode ->
-                a.run("正在重置", "已重置到 $short") { reset(c.id, mode) }
+        MenuItem(t("New branch…", "新建分支…")) { askNewBranch(c, a) },
+        MenuItem(t("Add tag…", "打标签…")) {
+            a.ask(DialogSpec(t("Add tag", "打标签"), t("Add a tag to $short.", "给 $short 打一个标签。"), t("Create tag", "创建标签"), input = t("Tag name", "标签名")) { name, _ ->
+                a.run(t("Creating tag", "正在创建标签"), t("Created tag $name", "已创建标签 $name")) { tag(name, c.id) }
             })
         },
         MenuSeparator,
-        MenuItem("复制哈希") { a.copy(c.id) },
-        MenuItem("复制提交说明") { a.copy(c.fullMessage.trim()) },
+        MenuItem(t("Merge into $target…", "合并到 $target…"), enabled = !isHead) {
+            a.ask(DialogSpec(t("Merge", "合并"), t("Merge $short into $target.", "把 $short 合并到 $target。"), t("Merge", "合并")) { _, _ ->
+                a.run(t("Merging", "正在合并"), t("Merged $short", "已合并 $short")) { merge(c.id) }
+            })
+        },
+        MenuItem(t("Cherry-pick onto $target…", "Cherry-pick 到 $target…"), enabled = !isHead) {
+            a.ask(DialogSpec("Cherry-pick", t("Apply the changes from $short to $target.", "把 $short 的改动应用到 $target。"), t("Apply", "应用")) { _, _ ->
+                a.run(t("Applying", "正在应用"), t("Applied $short", "已应用 $short")) { cherryPick(c) }
+            })
+        },
+        MenuItem(t("Revert this commit…", "回滚这个提交…")) {
+            a.ask(DialogSpec(t("Revert commit", "回滚提交"), t("Add a commit on $target that undoes the changes from $short.", "在 $target 上新增一个提交，撤销 $short 的改动。"), t("Revert", "回滚")) { _, _ ->
+                a.run(t("Reverting", "正在回滚"), t("Reverted $short", "已回滚 $short")) { revert(c) }
+            })
+        },
+        MenuItem(t("Reset $target to here…", "把 $target 重置到这里…"), enabled = !isHead, danger = true) {
+            a.ask(DialogSpec(t("Reset $target", "重置 $target"), t("Move $target to $short.", "把 $target 移到 $short。"), t("Reset", "重置"), danger = true, modes = true) { _, mode ->
+                a.run(t("Resetting", "正在重置"), t("Reset to $short", "已重置到 $short")) { reset(c.id, mode) }
+            })
+        },
+        MenuSeparator,
+        MenuItem(t("Copy hash", "复制哈希")) { a.copy(c.id) },
+        MenuItem(t("Copy commit message", "复制提交说明")) { a.copy(c.fullMessage.trim()) },
     )
 }
 
 internal fun askNewBranch(c: CommitInfo, a: GitActions) {
-    a.ask(DialogSpec("新建分支", "从 ${c.id.take(7)} 创建分支。", "创建分支", input = "分支名") { name, _ ->
-        a.run("正在创建分支", "已创建分支 $name") { createBranch(name, c.id) }
+    a.ask(DialogSpec(t("New branch", "新建分支"), t("Create a branch from ${c.id.take(7)}.", "从 ${c.id.take(7)} 创建分支。"), t("Create branch", "创建分支"), input = t("Branch name", "分支名")) { name, _ ->
+        a.run(t("Creating branch", "正在创建分支"), t("Created branch $name", "已创建分支 $name")) { createBranch(name, c.id) }
     })
 }
 
 internal fun branchMenu(name: String, isCurrent: Boolean, target: String?, a: GitActions): List<MenuEntry> = listOf(
-    MenuItem("切换到这个分支", enabled = !isCurrent) {
-        a.run("正在切换", "已切换到 $name") { switchTo(name) }
+    MenuItem(t("Switch to this branch", "切换到这个分支"), enabled = !isCurrent) {
+        a.run(t("Switching", "正在切换"), t("Switched to $name", "已切换到 $name")) { switchTo(name) }
     },
-    MenuItem("合并到 ${target ?: "当前提交"}…", enabled = !isCurrent) {
-        a.ask(DialogSpec("合并", "把 $name 合并到 ${target ?: "当前提交"}。", "合并") { _, _ ->
-            a.run("正在合并", "已合并 $name") { merge(name) }
+    MenuItem(t("Merge into ${target ?: "HEAD"}…", "合并到 ${target ?: "当前提交"}…"), enabled = !isCurrent) {
+        a.ask(DialogSpec(t("Merge", "合并"), t("Merge $name into ${target ?: "HEAD"}.", "把 $name 合并到 ${target ?: "当前提交"}。"), t("Merge", "合并")) { _, _ ->
+            a.run(t("Merging", "正在合并"), t("Merged $name", "已合并 $name")) { merge(name) }
         })
     },
     MenuSeparator,
-    MenuItem("重命名…", enabled = !isCurrent) {
-        a.ask(DialogSpec("重命名分支", "把 $name 改成新的名字。", "重命名", input = "新分支名", initial = name) { to, _ ->
-            a.run("正在重命名", "已重命名为 $to") { renameBranch(name, to) }
+    MenuItem(t("Rename…", "重命名…"), enabled = !isCurrent) {
+        a.ask(DialogSpec(t("Rename branch", "重命名分支"), t("Give $name a new name.", "把 $name 改成新的名字。"), t("Rename", "重命名"), input = t("New branch name", "新分支名"), initial = name) { to, _ ->
+            a.run(t("Renaming", "正在重命名"), t("Renamed to $to", "已重命名为 $to")) { renameBranch(name, to) }
         })
     },
-    MenuItem("删除…", enabled = !isCurrent, danger = true) {
-        a.ask(DialogSpec("删除分支", "删除本地分支 $name。没有合并的分支 git 会拒绝删除。", "删除", danger = true) { _, _ ->
-            a.run("正在删除", "已删除分支 $name") { deleteBranch(name) }
+    MenuItem(t("Delete…", "删除…"), enabled = !isCurrent, danger = true) {
+        a.ask(DialogSpec(t("Delete branch", "删除分支"), t("Delete the local branch $name. Git refuses if it isn't merged.", "删除本地分支 $name。没有合并的分支 git 会拒绝删除。"), t("Delete", "删除"), danger = true) { _, _ ->
+            a.run(t("Deleting", "正在删除"), t("Deleted branch $name", "已删除分支 $name")) { deleteBranch(name) }
         })
     },
-    MenuItem("强制删除…", enabled = !isCurrent, danger = true) {
+    MenuItem(t("Force delete…", "强制删除…"), enabled = !isCurrent, danger = true) {
         a.ask(DialogSpec(
-            "强制删除分支",
-            "删除本地分支 $name，即使它有还没合并的提交。这些提交之后只能从 reflog 找回。",
-            "强制删除", danger = true,
+            t("Force delete branch", "强制删除分支"),
+            t("Delete the local branch $name even if it has unmerged commits. Those commits can then only be recovered from the reflog.", "删除本地分支 $name，即使它有还没合并的提交。这些提交之后只能从 reflog 找回。"),
+            t("Force delete", "强制删除"), danger = true,
         ) { _, _ ->
-            a.run("正在删除", "已删除分支 $name") { deleteBranch(name, force = true) }
+            a.run(t("Deleting", "正在删除"), t("Deleted branch $name", "已删除分支 $name")) { deleteBranch(name, force = true) }
         })
     },
 )
@@ -147,7 +147,7 @@ internal fun repoMenu(
 ): List<MenuEntry> {
     val repos: List<MenuEntry> = recent.map { path -> MenuItem(File(path).name, enabled = path != current) { onOpen(path) } }
     return repos + (if (repos.isEmpty()) emptyList() else listOf(MenuSeparator)) +
-        listOf(MenuItem("打开仓库…", action = onBrowse), MenuItem("克隆仓库…", action = onClone))
+        listOf(MenuItem(t("Open repository…", "打开仓库…"), action = onBrowse), MenuItem(t("Clone repository…", "克隆仓库…"), action = onClone))
 }
 
 @OptIn(ExperimentalComposeUiApi::class)
@@ -238,7 +238,7 @@ internal fun ActionDialog(spec: DialogSpec, onDismiss: () -> Unit) {
                 spec.onConfirm(text.trim(), mode)
             }) { Text(spec.confirm, color = if (spec.danger) Palette.Removed else Palette.AccentInk) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消", color = Palette.Ink) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(t("Cancel", "取消"), color = Palette.Ink) } },
         containerColor = Palette.Field,
         shape = RoundedCornerShape(10.dp),
     )

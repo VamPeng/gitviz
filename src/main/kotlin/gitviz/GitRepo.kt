@@ -136,7 +136,7 @@ class CommitPager internal constructor(private val repo: GitRepo, val path: Stri
 
     /** 再读最多 count 个提交，返回到目前为止读到的全部。 */
     fun load(count: Int): LoadResult {
-        check(!closed) { "仓库已关闭" }
+        check(!closed) { t("Repository is closed", "仓库已关闭") }
         repeat(count) {
             val c = next() ?: return@repeat
             with(repo) { walkOrder += c.toInfo(labels[c.name].orEmpty()) }
@@ -223,7 +223,7 @@ class GitRepo private constructor(val repository: Repository) : AutoCloseable {
         RevWalk(repository).use { walk ->
             val commit = walk.parseCommit(ObjectId.fromString(commitId))
             require(commit.parentCount == 0 || parentIndex in 0 until commit.parentCount) {
-                "提交 ${commit.name.take(7)} 没有第 ${parentIndex + 1} 个父提交"
+                t("Commit ${commit.name.take(7)} has no parent #${parentIndex + 1}", "提交 ${commit.name.take(7)} 没有第 ${parentIndex + 1} 个父提交")
             }
             val oldTree: RevTree? = if (commit.parentCount > 0) walk.parseCommit(commit.getParent(parentIndex)).tree else null
             DiffFormatter(DisabledOutputStream.INSTANCE).use { df ->
@@ -263,7 +263,7 @@ class GitRepo private constructor(val repository: Repository) : AutoCloseable {
         }
         val text = out.toString(Charsets.UTF_8)
         return if (text.length > MAX_DIFF_CHARS) {
-            text.take(MAX_DIFF_CHARS) + "\n\n… diff 过大，已截断（${text.length} 字符）"
+            text.take(MAX_DIFF_CHARS) + t("\n\n… diff too large, truncated (${text.length} characters)", "\n\n… diff 过大，已截断（${text.length} 字符）")
         } else text
     }
 
@@ -338,7 +338,7 @@ class GitRepo private constructor(val repository: Repository) : AutoCloseable {
         /** 从给定目录向上查找 .git，找不到时抛异常。 */
         fun open(dir: File): GitRepo {
             val builder = FileRepositoryBuilder().readEnvironment().findGitDir(dir.canonicalFile) // 规范化路径，传 "." 时仓库名不会变成 "."
-            require(builder.gitDir != null) { "不是 git 仓库：${dir.absolutePath}" }
+            require(builder.gitDir != null) { t("Not a git repository: ${dir.absolutePath}", "不是 git 仓库：${dir.absolutePath}") }
             return GitRepo(builder.setMustExist(true).build())
         }
     }
