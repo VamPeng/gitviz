@@ -43,6 +43,15 @@ internal object Settings {
     var defaultDiffMode by mutableStateOf(if (prefs.getBoolean("splitDiff", false)) DiffMode.Split else DiffMode.Unified)
         private set
 
+    /** 文件页是否列出被 .gitignore 忽略的文件。 */
+    var showIgnoredFiles by mutableStateOf(prefs.getBoolean("showIgnoredFiles", true))
+        private set
+
+    fun updateShowIgnoredFiles(value: Boolean) {
+        showIgnoredFiles = value
+        prefs.putBoolean("showIgnoredFiles", value)
+    }
+
     private var recent by mutableStateOf(prefs.get("recentRepos", "").split(PathSeparator).filter { it.isNotEmpty() })
 
     /** 最近打开的仓库，已经不存在的不显示。 */

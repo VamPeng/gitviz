@@ -122,7 +122,7 @@ private const val MIN_RELOAD_GAP_MS = 1500L
 /** 监听期间没有变化时，多久兜底读一次。 */
 private const val FALLBACK_RELOAD_MS = 30_000L
 
-private enum class MainView { HISTORY, CHANGES, STASH, CONFLICT, SETTINGS }
+private enum class MainView { HISTORY, CHANGES, FILES, STASH, CONFLICT, SETTINGS }
 
 /** 打开的仓库和已加载的那部分历史。不可变，每加载一页换一个新对象。 */
 internal class RepoState(
@@ -186,6 +186,10 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
     var stashSelected by remember { mutableStateOf<String?>(null) }
     // 侧边栏鼠标指着的分支，图上只亮它那条线
     var hoveredRef by remember { mutableStateOf<RefTarget?>(null) }
+    // 文件页右键“查看改动”时，本地改动页要选中的文件
+    var changesFocus by remember { mutableStateOf<String?>(null) }
+    // 每读一次工作区状态加一，文件页据此重读目录（status 没变时修改时间、被忽略的文件也可能变了）
+    var workingReloads by remember { mutableStateOf(0) }
 
     /** minShowMs：至少转这么久再换成仓库，启动时用，免得加载画面一闪而过。 */
     fun open(dir: File, quiet: Boolean = false, minShowMs: Long = 0) {
@@ -268,6 +272,7 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
         working = git?.let { withContext(Dispatchers.IO) { it.status() } }.orEmpty()
         stashes = git?.let { withContext(Dispatchers.IO) { it.stashList() } }.orEmpty()
         operation = git?.let { withContext(Dispatchers.IO) { it.currentOperation() } }
+        workingReloads++
     }
 
     // 文件可能在别的编辑器里改，要重读工作区状态。大仓库里 git status 一次要几百毫秒 CPU，所以：
@@ -490,6 +495,9 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                     }
                     WorkspaceItem(t("Changes", "本地改动"), Icons.Edit, view == MainView.CHANGES, working.size - conflicted.size) { view = MainView.CHANGES }
                     WorkspaceItem(t("All commits", "所有提交"), Icons.History, view == MainView.HISTORY, 0) { view = MainView.HISTORY }
+                    if (workTree != null) {
+                        WorkspaceItem(t("Files", "文件"), Icons.Folder, view == MainView.FILES, 0) { view = MainView.FILES }
+                    }
                     WorkspaceItem(t("Stashes", "储藏"), Icons.Stash, view == MainView.STASH, stashes.size) { view = MainView.STASH }
                 }
                 HorizontalDivider()
@@ -575,6 +583,20 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                         onFailure = { title, detail -> net = NetStatus(title, detail, NetState.FAILED) },
                         modifier = Modifier.fillMaxWidth().weight(1f),
                     )
+                } else if (view == MainView.FILES && cli != null && workTree != null) {
+                    FilesView(
+                        cli, workTree, workingReloads,
+                        onShowChanges = { path ->
+                            changesFocus = path
+                            view = MainView.CHANGES
+                        },
+                        onShowHistory = { path ->
+                            view = MainView.HISTORY
+                            showHistoryOf(path)
+                        },
+                        onFailure = { title, detail -> net = NetStatus(title, detail, NetState.FAILED) },
+                        modifier = Modifier.fillMaxWidth().weight(1f),
+                    )
                 } else if (view == MainView.STASH && cli != null) {
                     StashView(cli, stashes, actions, Modifier.fillMaxWidth().weight(1f), stashSelected, onSelect = { stashSelected = it })
                 } else if (view == MainView.CHANGES && cli != null) {
@@ -586,6 +608,8 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                         },
                         onFailure = { title, detail -> net = NetStatus(title, detail, NetState.FAILED) },
                         modifier = Modifier.fillMaxWidth().weight(1f),
+                        focus = changesFocus,
+                        onFocused = { changesFocus = null },
                     )
                 } else {
                     val searching = query.isNotBlank()

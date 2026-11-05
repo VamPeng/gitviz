@@ -40,9 +40,17 @@ internal fun ChangesView(
     onChanged: (historyChanged: Boolean) -> Unit,
     onFailure: (title: String, detail: String) -> Unit,
     modifier: Modifier,
+    /** 从别处（比如文件页）带过来、要选中的文件。选中后调用 onFocused。 */
+    focus: String? = null,
+    onFocused: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     var selection by remember(cli) { mutableStateOf<Selection?>(null) }
+    LaunchedEffect(focus) {
+        val path = focus ?: return@LaunchedEffect
+        files.firstOrNull { it.path == path }?.let { selection = Selection(it.path, staged = !it.hasUnstaged) }
+        onFocused()
+    }
     var mode by remember { mutableStateOf(Settings.defaultDiffMode) }
     var toDiscard by remember { mutableStateOf<WorkingFile?>(null) }
     var revision by remember { mutableStateOf(0) }

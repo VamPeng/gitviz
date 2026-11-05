@@ -151,6 +151,15 @@ class GitCli(private val workTree: File) {
         return if (exit == 0) parseStatus(output) else emptyList()
     }
 
+    /**
+     * 文件视图用的状态：比 status() 多了被忽略的路径（index、worktree 都是 '!'）。
+     * --ignored=matching 只报规则直接匹配到的路径，被忽略的目录报一行 dir/，不展开里面成千上万个文件。
+     */
+    fun treeStatus(): List<WorkingFile> {
+        val (exit, output) = exec(listOf("--no-optional-locks", "status", "--porcelain", "-z", "--untracked-files=all", "--ignored=matching"))
+        return if (exit == 0) parseStatus(output) else emptyList()
+    }
+
     fun stage(file: WorkingFile): GitResult = run("add", "--", literal(file.path))
 
     fun unstage(file: WorkingFile): GitResult =

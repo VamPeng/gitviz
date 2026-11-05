@@ -111,6 +111,30 @@ class ScreenshotTest {
         scene.close()
     }
 
+    /** 文件页：默认用当前仓库，build/ 和 .gradle/ 是被忽略的，正好能看到灰色的那些。 */
+    @Test
+    fun `files view renders`() {
+        val dir = File(System.getenv("GITVIZ_SCREENSHOT_REPO") ?: ".").absoluteFile
+        for ((name, start) in listOf("files" to "", "files-sub" to "src/main/kotlin/gitviz")) {
+            val scene = ImageComposeScene(1112 * 2, 700 * 2, Density(2f)) {
+                GitVizTheme {
+                    Surface(Modifier.fillMaxSize(), color = Palette.Ground, contentColor = Palette.Ink) {
+                        FilesView(GitCli(dir), dir, 0, {}, {}, { _, _ -> }, Modifier.fillMaxSize(), start = start)
+                    }
+                }
+            }
+            var image = scene.render(0)
+            repeat(10) { i ->
+                Thread.sleep(150)
+                image = scene.render((i + 1) * 100_000_000L)
+            }
+            val out = File("build/screens/$name.png").apply { parentFile.mkdirs() }
+            out.writeBytes(image.encodeToData(EncodedImageFormat.PNG)!!.bytes)
+            scene.close()
+            assertTrue(out.length() > 0)
+        }
+    }
+
     @Test
     fun `settings render`() {
         val scene = ImageComposeScene(1112 * 2, 560 * 2, Density(2f)) {

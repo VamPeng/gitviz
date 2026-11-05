@@ -16,6 +16,7 @@ Kotlin + Compose Desktop + JGit 写的 git 可视化客户端，还在开发中�
 - 验证：要密码时由 git 和 ssh 弹出 macOS 系统对话框，密码不经过应用，也不保存
 - 仓库：工具栏切换最近的仓库、打开或克隆新仓库
 - 设置：主题、提交列表行高、默认 diff 视图
+- 文件：按目录浏览工作区，包括被 .gitignore 忽略的文件，标出每个文件的 git 状态；双击用系统程序打开
 - 储藏：新建（包括未跟踪的文件）、查看、应用、弹出、删除
 - 右键提交：检出、新建分支、打标签、合并、Cherry-pick、回滚、重置、复制
 - 右键分支：切换、合并、重命名、删除；双击分支切换
@@ -58,6 +59,7 @@ Kotlin + Compose Desktop + JGit 写的 git 可视化客户端，还在开发中�
 | `GitCli.kt` | 调用系统 git 执行所有写操作 |
 | `ChangesView.kt` | 本地改动和提交说明 |
 | `StashView.kt` | 储藏列表和内容 |
+| `FileTree.kt`、`FilesView.kt` | 读工作区目录和每个文件的 git 状态、文件页的界面 |
 | `Conflicts.kt`、`ConflictView.kt` | 解析冲突标记、解决冲突的界面 |
 | `Settings.kt` | 用户选项、最近的仓库、设置页 |
 | `GitMenus.kt` | 提交和分支的右键菜单、确认对话框 |
