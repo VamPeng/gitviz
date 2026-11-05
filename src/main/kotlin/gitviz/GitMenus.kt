@@ -22,8 +22,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.window.rememberCursorPositionProvider
 import java.io.File
@@ -36,6 +42,10 @@ data class MenuItem(
     val label: String,
     val enabled: Boolean = true,
     val danger: Boolean = false,
+    /** 名字下面的一行小字，比如仓库所在的文件夹。 */
+    val detail: String? = null,
+    /** 当前选中的项，前面打勾。 */
+    val checked: Boolean = false,
     val action: () -> Unit = {},
 ) : MenuEntry
 
@@ -145,28 +155,37 @@ internal fun repoMenu(
     onBrowse: () -> Unit,
     onClone: () -> Unit,
 ): List<MenuEntry> {
-    val repos: List<MenuEntry> = recent.map { path -> MenuItem(File(path).name, enabled = path != current) { onOpen(path) } }
+    val home = System.getProperty("user.home")
+    val repos: List<MenuEntry> = recent.map { path ->
+        val parent = File(path).parent?.let { if (home != null && it.startsWith(home)) "~" + it.removePrefix(home) else it }
+        val isCurrent = path == current
+        MenuItem(File(path).name, enabled = !isCurrent, detail = parent, checked = isCurrent) { onOpen(path) }
+    }
     return repos + (if (repos.isEmpty()) emptyList() else listOf(MenuSeparator)) +
         listOf(MenuItem(t("Open repository…", "打开仓库…"), action = onBrowse), MenuItem(t("Clone repository…", "克隆仓库…"), action = onClone))
 }
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-internal fun GitMenuPopup(entries: List<MenuEntry>, onDismiss: () -> Unit) {
+internal fun GitMenuPopup(entries: List<MenuEntry>, onDismiss: () -> Unit, anchor: IntOffset? = null) {
     val shape = RoundedCornerShape(7.dp)
+    val items = entries.filterIsInstance<MenuItem>()
+    // 有打勾的项时每一项都留出勾的位置，文字才对得齐
+    val checkGutter = items.any { it.checked }
+    val width = if (items.any { it.detail != null }) 280.dp else 236.dp
     Popup(
-        popupPositionProvider = rememberCursorPositionProvider(),
+        popupPositionProvider = if (anchor != null) remember(anchor) { AnchorPositionProvider(anchor) } else rememberCursorPositionProvider(),
         onDismissRequest = onDismiss,
         properties = PopupProperties(focusable = true),
     ) {
         Column(
-            Modifier.width(236.dp).shadow(10.dp, shape).background(Palette.Field, shape).border(1.dp, Palette.Line, shape).padding(4.dp),
+            Modifier.width(width).shadow(10.dp, shape).background(Palette.Field, shape).border(1.dp, Palette.Line, shape).padding(4.dp),
         ) {
             for (entry in entries) {
                 when (entry) {
                     MenuSeparator -> HorizontalDivider(Modifier.padding(horizontal = 6.dp, vertical = 4.dp))
                     is MenuItem -> Row(
-                        Modifier.fillMaxWidth().height(27.dp).clip(RoundedCornerShape(4.dp))
+                        Modifier.fillMaxWidth().height(if (entry.detail != null) 40.dp else 27.dp).clip(RoundedCornerShape(4.dp))
                             .clickable(enabled = entry.enabled) {
                                 onDismiss()
                                 entry.action()
@@ -175,19 +194,40 @@ internal fun GitMenuPopup(entries: List<MenuEntry>, onDismiss: () -> Unit) {
                             .padding(horizontal = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(
-                            entry.label, fontSize = TypeScale.Body, maxLines = 1,
-                            color = when {
-                                !entry.enabled -> Palette.Faint
-                                entry.danger -> Palette.Removed
-                                else -> Palette.Ink
-                            },
-                        )
+                        if (checkGutter) {
+                            Box(Modifier.width(20.dp)) {
+                                if (entry.checked) Icon(Icons.Check, Palette.Accent, size = 12.dp, strokeWidth = 3f)
+                            }
+                        }
+                        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                            Text(
+                                entry.label, fontSize = TypeScale.Body, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                fontWeight = if (entry.checked) FontWeight.SemiBold else FontWeight.Normal,
+                                color = when {
+                                    entry.checked -> Palette.Ink
+                                    !entry.enabled -> Palette.Faint
+                                    entry.danger -> Palette.Removed
+                                    else -> Palette.Ink
+                                },
+                            )
+                            entry.detail?.let {
+                                Text(it, fontSize = TypeScale.Small, color = Palette.Faint, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
                     }
                 }
             }
         }
     }
+}
+
+/** 菜单左上角放在 anchor（窗口坐标），放不下时往回收，不超出窗口。 */
+private class AnchorPositionProvider(private val anchor: IntOffset) : PopupPositionProvider {
+    override fun calculatePosition(anchorBounds: IntRect, windowSize: IntSize, layoutDirection: LayoutDirection, popupContentSize: IntSize) =
+        IntOffset(
+            anchor.x.coerceIn(0, maxOf(0, windowSize.width - popupContentSize.width)),
+            anchor.y.coerceIn(0, maxOf(0, windowSize.height - popupContentSize.height)),
+        )
 }
 
 @Composable

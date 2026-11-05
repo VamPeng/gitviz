@@ -15,10 +15,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.graphics.toComposeImageBitmap
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
@@ -26,6 +30,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpSize
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.FrameWindowScope
@@ -154,6 +159,7 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
     var stashes by remember { mutableStateOf(emptyList<StashEntry>()) }
     var operation by remember { mutableStateOf<GitOperation?>(null) }
     var menu by remember { mutableStateOf<List<MenuEntry>?>(null) }
+    var menuAnchor by remember { mutableStateOf<IntOffset?>(null) } // null：跟着鼠标弹出
     var dialog by remember { mutableStateOf<DialogSpec?>(null) }
     var working by remember { mutableStateOf(emptyList<WorkingFile>()) }
     val commitListState = rememberLazyListState()
@@ -475,7 +481,10 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                         }
                     },
                     onBranchMenu = { ref ->
-                        if (cli != null) menu = branchMenu(ref.label.name, ref.label.isCurrent, currentBranch, actions)
+                        if (cli != null) {
+                            menuAnchor = null
+                            menu = branchMenu(ref.label.name, ref.label.isCurrent, currentBranch, actions)
+                        }
                     },
                     branchColors = s.branchColors,
                     onHover = { hoveredRef = it },
@@ -504,7 +513,10 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                 val start = if (isMac && s == null) 84.dp else 18.dp
                 Toolbar(
                     s, loading, start, query, onQuery = { query = it },
-                    onOpen = { menu = repoMenu(workTree?.path, Settings.recentRepos, { open(File(it)) }, chooseAndOpen, ::askClone) },
+                    onOpen = { at ->
+                        menuAnchor = at
+                        menu = repoMenu(workTree?.path, Settings.recentRepos, { open(File(it)) }, chooseAndOpen, ::askClone)
+                    },
                     onRefresh = { s?.repo?.workTree?.let { open(it) } ?: s?.repo?.repository?.directory?.let { open(it) } },
                     netBusy = net?.state == NetState.RUNNING,
                     onPull = { runNet(NetOp.PULL) },
@@ -578,6 +590,7 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                                 stashSelected = c.id
                                 view = MainView.STASH
                             } else if (cli != null) {
+                                menuAnchor = null
                                 menu = commitMenu(c, c.id == s.headId, currentBranch, actions)
                             }
                         },
@@ -603,7 +616,7 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
             }
         }
     }
-    menu?.let { GitMenuPopup(it, onDismiss = { menu = null }) }
+    menu?.let { GitMenuPopup(it, onDismiss = { menu = null }, anchor = menuAnchor) }
     dialog?.let { ActionDialog(it, onDismiss = { dialog = null }) }
 }
 
@@ -733,7 +746,7 @@ internal fun Toolbar(
     start: Dp,
     query: String,
     onQuery: (String) -> Unit,
-    onOpen: () -> Unit,
+    onOpen: (IntOffset) -> Unit,
     onRefresh: () -> Unit,
     netBusy: Boolean,
     onPull: () -> Unit,
@@ -747,8 +760,16 @@ internal fun Toolbar(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        // 仓库菜单从标题正下方弹出，左边和标题对齐，不盖住标题
+        var titleBounds by remember { mutableStateOf<Rect?>(null) }
+        val gap = with(LocalDensity.current) { 4.dp.roundToPx() }
         Row(
-            Modifier.clip(RoundedCornerShape(5.dp)).clickable(enabled = !loading, onClick = onOpen).padding(horizontal = 6.dp, vertical = 4.dp),
+            Modifier.onGloballyPositioned { titleBounds = it.boundsInWindow() }
+                .clip(RoundedCornerShape(5.dp))
+                .clickable(enabled = !loading) {
+                    titleBounds?.let { onOpen(IntOffset(it.left.toInt(), it.bottom.toInt() + gap)) }
+                }
+                .padding(horizontal = 6.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
