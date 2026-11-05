@@ -221,6 +221,16 @@ class GitCli(private val workTree: File) {
 
     @Volatile private var stashCache: Pair<Pair<Long, Long>, List<StashEntry>>? = null
 
+    /** 这个工作区用到的 git 目录，自己的和共用的，可能是同一个。 */
+    val gitDirectories: List<File> get() = listOf(gitDirs.own, gitDirs.common).map { it.canonicalFile }.distinct()
+
+    /** 要监听变化的目录：工作区，加上不在工作区里面的 git 目录（链接工作区、--separate-git-dir）。 */
+    val watchRoots: List<File>
+        get() {
+            val root = workTree.canonicalFile
+            return listOf(root) + gitDirectories.filter { !it.toPath().startsWith(root.toPath()) }
+        }
+
     /** 工作区自己的 git 目录（MERGE_HEAD 这些在这里），和多个工作区共用的目录（refs、reflog 在这里）。 */
     private class GitDirs(val own: File, val common: File)
 

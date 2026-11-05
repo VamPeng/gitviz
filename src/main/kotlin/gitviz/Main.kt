@@ -36,12 +36,15 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import javax.swing.JFileChooser
 
@@ -93,6 +96,15 @@ private object AppIcon {
     fun load(): java.awt.image.BufferedImage? =
         AppIcon::class.java.getResourceAsStream("/icon.png")?.use { javax.imageio.ImageIO.read(it) }
 }
+
+/** 监听不了文件变化时，多久读一次工作区状态。 */
+private const val POLL_INTERVAL_MS = 3000L
+
+/** 监听到变化后，两次读工作区状态之间至少隔多久。 */
+private const val MIN_RELOAD_GAP_MS = 1500L
+
+/** 监听期间没有变化时，多久兜底读一次。 */
+private const val FALLBACK_RELOAD_MS = 30_000L
 
 private enum class MainView { HISTORY, CHANGES, STASH, CONFLICT, SETTINGS }
 
@@ -232,14 +244,39 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
         operation = git?.let { withContext(Dispatchers.IO) { it.currentOperation() } }
     }
 
-    // 文件可能在别的编辑器里改，定时读一次工作区状态。
-    // 大仓库里 git status 一次要几百毫秒 CPU，所以只在窗口有焦点时读；切回窗口时马上读一次
+    // 文件可能在别的编辑器里改，要重读工作区状态。大仓库里 git status 一次要几百毫秒 CPU，所以：
+    // 监听文件变化，有变化才读；只在窗口有焦点时读，切回窗口时马上读一次；监听不了时退回每 3 秒读一次
+    val changes = remember(cli) { Channel<Unit>(Channel.CONFLATED) }
+    var watching by remember(cli) { mutableStateOf<Boolean?>(null) } // null：还在启动监听
+    LaunchedEffect(cli) {
+        val git = cli ?: return@LaunchedEffect
+        // Linux 上要逐个目录注册，可能要一会儿，放到后台
+        val watcher = withContext(Dispatchers.IO) {
+            runCatching { watchWorkTree(git.watchRoots, git.gitDirectories) { changes.trySend(Unit) } }.getOrNull()
+        }
+        watching = watcher != null
+        try {
+            awaitCancellation()
+        } finally {
+            watcher?.close()
+        }
+    }
     val windowFocused = LocalWindowInfo.current.isWindowFocused
-    LaunchedEffect(cli, windowFocused) {
-        if (!windowFocused) return@LaunchedEffect
+    LaunchedEffect(cli, windowFocused, watching) {
+        if (!windowFocused || cli == null) return@LaunchedEffect
+        if (watching != true) {
+            while (true) {
+                reloadWorking()
+                delay(POLL_INTERVAL_MS)
+            }
+        }
         while (true) {
+            changes.tryReceive() // 失焦期间攒下的变化，下面这次读就包括了
             reloadWorking()
-            delay(3000)
+            // 编译、切分支时文件一直在变，两次读之间至少隔一会儿，期间的变化合并成下一次
+            delay(MIN_RELOAD_GAP_MS)
+            // 监听可能漏掉事件（比如网络盘），隔一阵子无论如何读一次
+            withTimeoutOrNull(FALLBACK_RELOAD_MS) { changes.receive() }
         }
     }
 
