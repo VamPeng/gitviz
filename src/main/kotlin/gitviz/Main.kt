@@ -380,6 +380,8 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
         val id = scrollTarget ?: return@LaunchedEffect
         val index = s?.indexById?.get(id) ?: return@LaunchedEffect // 还没加载到，等下一页
         val position = shown.indexOf(index)
+        // 搜索时新读到的提交要等后台过滤完才进列表，过滤结果换了 shown 会再进来
+        if (position < 0 && query.isNotBlank() && (filtered?.state !== s || filtered?.query != query)) return@LaunchedEffect
         if (position >= 0) commitListState.animateScrollToItem((position - 3).coerceAtLeast(0))
         scrollTarget = null
     }
