@@ -35,6 +35,8 @@ const val LANE_COLOR_COUNT = 8
  */
 class BranchColors(refs: List<RefTarget>) {
     private val byName: Map<String, Int>
+    // 提交 id → 挂在上面的分支。还没加载到的提交也查得到，翻页前就能定下线的颜色
+    private val byCommit: Map<String, List<RefLabel>> = refs.groupBy({ it.commitId }, { it.label })
 
     init {
         val names = refs.mapNotNull { shortName(it.label) }.distinct()
@@ -55,9 +57,14 @@ class BranchColors(refs: List<RefTarget>) {
     fun index(label: RefLabel): Int? = shortName(label)?.let { byName[it] }
 
     /** 提交上挂着的分支里该用哪个颜色：当前分支优先，其次本地，最后远程。 */
-    fun indexFor(commit: CommitInfo): Int? =
-        (commit.refs.filter { it.kind == RefKind.BRANCH }.sortedByDescending { it.isCurrent } +
-            commit.refs.filter { it.kind == RefKind.REMOTE })
+    fun indexFor(commit: CommitInfo): Int? = indexFor(commit.refs)
+
+    /** 同上，按提交 id 查，提交本身不用已经加载。 */
+    fun indexFor(commitId: String): Int? = byCommit[commitId]?.let(::indexFor)
+
+    private fun indexFor(labels: List<RefLabel>): Int? =
+        (labels.filter { it.kind == RefKind.BRANCH }.sortedByDescending { it.isCurrent } +
+            labels.filter { it.kind == RefKind.REMOTE })
             .firstNotNullOfOrNull { index(it) }
 
     val used: Set<Int> get() = byName.values.toSet()
@@ -121,8 +128,6 @@ class GraphBuilder(private val colors: BranchColors = BranchColors.None) {
     private val lanes = ArrayList<String?>()
     private val tracks = ArrayList<Track?>()
     private val rows = ArrayList<GraphRow>()
-    // 已排过的提交，合并提交的另一个父提交已经读到时，新线用它的分支颜色
-    private val byId = HashMap<String, CommitInfo>()
     private val named = colors.used
     private var nextLine = 0
     private var nextFresh = 0
@@ -135,12 +140,11 @@ class GraphBuilder(private val colors: BranchColors = BranchColors.None) {
      * commits 接在之前排过的后面，合起来必须是拓扑序。
      */
     fun add(commits: List<CommitInfo>): List<GraphRow> {
-        for (c in commits) byId[c.id] = c
         rows.ensureCapacity(rows.size + commits.size)
 
         for (c in commits) {
             val incoming = lanes.indices.filter { lanes[it] == c.id }
-            val nodeTrack = incoming.firstOrNull()?.let { tracks[it] } ?: newTrack(c)
+            val nodeTrack = incoming.firstOrNull()?.let { tracks[it] } ?: newTrack(colors.indexFor(c))
             val node = incoming.firstOrNull() ?: freeSlot()
             val passThrough = lanes.indices.filter { lanes[it] != null && lanes[it] != c.id }
             val passTracks = passThrough.map { tracks[it]!! }
@@ -156,11 +160,12 @@ class GraphBuilder(private val colors: BranchColors = BranchColors.None) {
                     tracks[node] = nodeTrack
                     outgoing.putIfAbsent(node, nodeTrack)
                 } else {
-                    // 合并提交的其他父提交：已有列在等它就连过去，否则开新列，新列是一条新线
+                    // 合并提交的其他父提交：已有列在等它就连过去，否则开新列，新列是一条新线。
+                    // 父提交可能在下一页还没读到，按 id 查它挂的分支，颜色和读到后一致
                     val existing = lanes.indexOf(parent)
                     val lane = if (existing >= 0) existing else freeSlot(exclude = node).also {
                         lanes[it] = parent
-                        tracks[it] = newTrack(byId[parent])
+                        tracks[it] = newTrack(colors.indexFor(parent))
                     }
                     outgoing.putIfAbsent(lane, tracks[lane]!!)
                 }
@@ -204,6 +209,6 @@ class GraphBuilder(private val colors: BranchColors = BranchColors.None) {
         return pick
     }
 
-    // 一条新线从 commit 开始：挂着分支就用分支的颜色
-    private fun newTrack(commit: CommitInfo?) = Track(commit?.let { colors.indexFor(it) } ?: freshColor(), nextLine++)
+    // 一条新线：起点挂着分支就用分支的颜色（branchColor），没有就挑一个空闲色
+    private fun newTrack(branchColor: Int?) = Track(branchColor ?: freshColor(), nextLine++)
 }

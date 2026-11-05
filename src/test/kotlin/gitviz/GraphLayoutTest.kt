@@ -122,4 +122,27 @@ class GraphLayoutTest {
         assertEquals(whole.map { it.outgoing.toList() }, all.map { it.outgoing.toList() })
         assertEquals(whole.map { it.nodeTrack.line }, all.map { it.nodeTrack.line })
     }
+
+    @Test
+    fun `merged branch keeps its color when its tip is on the next page`() {
+        val commits = listOf(
+            withRefs(commit("m", "x", "f"), RefLabel("main", RefKind.BRANCH, isCurrent = true)),
+            commit("x", "a"),
+            withRefs(commit("f", "a"), RefLabel("feature", RefKind.BRANCH)),
+            commit("a"),
+        )
+        val colors = BranchColors(
+            listOf(
+                RefTarget(RefLabel("main", RefKind.BRANCH, isCurrent = true), "m"),
+                RefTarget(RefLabel("feature", RefKind.BRANCH), "f"),
+            ),
+        )
+        val whole = GraphLayout.compute(commits, colors)
+        val builder = GraphBuilder(colors)
+        builder.add(commits.take(2)) // f 在下一页
+        val paged = builder.add(commits.drop(2))
+        assertEquals(whole.map { it.nodeTrack.color }, paged.map { it.nodeTrack.color })
+        assertEquals(whole[0].outgoingTracks.map { it.color }, paged[0].outgoingTracks.map { it.color })
+        assertEquals(colors.index(RefLabel("feature", RefKind.BRANCH)), paged[0].outgoingTracks[1].color)
+    }
 }
