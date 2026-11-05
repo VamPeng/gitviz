@@ -585,4 +585,35 @@ class GitCliTest {
         assertEquals(GitFailure.AUTH, classifyFailure("Host key verification failed."))
         assertEquals(GitFailure.OTHER, classifyFailure("fatal: not a git repository"))
     }
+
+    @Test
+    fun `stash list follows pushes and drops while reusing the cached read`() {
+        prepare()
+        val cli = GitCli(work)
+        assertEquals(emptyList(), cli.stashList())
+        File(work, "a").writeText("two\n")
+        assertTrue(cli.stash("first").ok)
+        assertEquals(listOf("first"), cli.stashList().map { it.message.substringAfter(": ") })
+        assertEquals(cli.stashList(), cli.stashList())
+        File(work, "a").writeText("three\n")
+        assertTrue(cli.stash("second").ok)
+        assertEquals(2, cli.stashList().size)
+        assertTrue(cli.dropStash(cli.stashList().first()).ok)
+        assertEquals(1, cli.stashList().size)
+    }
+
+    @Test
+    fun `current operation is seen through the cached git dir`() {
+        prepare()
+        val cli = GitCli(work)
+        assertEquals(null, cli.currentOperation())
+        git(work, "switch", "-q", "-c", "side")
+        commit(work, "a", "side\n")
+        git(work, "switch", "-q", "main")
+        commit(work, "a", "main\n")
+        assertEquals(GitFailure.CONFLICT, cli.merge("side").failure)
+        assertEquals(GitOperation.MERGE, cli.currentOperation())
+        assertTrue(cli.abortOperation().ok)
+        assertEquals(null, cli.currentOperation())
+    }
 }

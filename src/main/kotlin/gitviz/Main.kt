@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -211,8 +212,11 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
         operation = git?.let { withContext(Dispatchers.IO) { it.currentOperation() } }
     }
 
-    // 文件可能在别的编辑器里改，定时读一次工作区状态
-    LaunchedEffect(cli) {
+    // 文件可能在别的编辑器里改，定时读一次工作区状态。
+    // 大仓库里 git status 一次要几百毫秒 CPU，所以只在窗口有焦点时读；切回窗口时马上读一次
+    val windowFocused = LocalWindowInfo.current.isWindowFocused
+    LaunchedEffect(cli, windowFocused) {
+        if (!windowFocused) return@LaunchedEffect
         while (true) {
             reloadWorking()
             delay(3000)
@@ -263,7 +267,15 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
         copy = { clipboard.setText(AnnotatedString(it)) },
     )
     val currentBranch = s?.result?.refs?.firstOrNull { it.label.kind == RefKind.BRANCH && it.label.isCurrent }?.label?.name
-    val shown = remember(s, query) { s?.let { filterCommits(it.result.commits, query) }.orEmpty() }
+    // 几万个提交过滤一次要一百多毫秒，放到后台算，打字时界面不卡
+    var filtered by remember { mutableStateOf<Filtered?>(null) }
+    LaunchedEffect(s, query) {
+        val st = s ?: return@LaunchedEffect
+        if (query.isBlank()) return@LaunchedEffect
+        val ids = withContext(Dispatchers.Default) { filterCommits(st.result.commits, query) }
+        filtered = Filtered(st, query, ids)
+    }
+    val shown = remember(s, query, filtered) { s?.let { visibleCommits(it, query, filtered) }.orEmpty() }
 
     // 已加载的提交即时过滤；同时在后台搜全部历史，看没加载的部分里还有多少匹配
     var search by remember { mutableStateOf<SearchResult?>(null) }
@@ -536,6 +548,20 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
     }
     menu?.let { GitMenuPopup(it, onDismiss = { menu = null }) }
     dialog?.let { ActionDialog(it, onDismiss = { dialog = null }) }
+}
+
+/** 后台算好的一次过滤结果。indices 是 state 里的下标，换了 state 就不能直接用。 */
+internal class Filtered(val state: RepoState, val query: String, val indices: List<Int>)
+
+/**
+ * 列表里显示哪些提交。新结果还没算好时先用上一次的：
+ * 同一个 state 直接用（只是慢一拍）；state 换了（翻页、刷新），按 id 换算到新列表的下标。
+ * 一次都还没算过时先显示全部。
+ */
+internal fun visibleCommits(state: RepoState, query: String, filtered: Filtered?): List<Int> = when {
+    query.isBlank() || filtered == null -> state.result.commits.indices.toList()
+    filtered.state === state -> filtered.indices
+    else -> filtered.indices.mapNotNull { state.indexById[filtered.state.result.commits[it].id] }.sorted()
 }
 
 /** 搜索说明、作者、哈希和引用名，返回匹配提交在完整列表里的下标。 */

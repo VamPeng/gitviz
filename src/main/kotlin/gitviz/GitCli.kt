@@ -204,10 +204,31 @@ class GitCli(private val workTree: File) {
 
     fun reset(commitId: String, mode: ResetMode): GitResult = run("reset", mode.flag, commitId)
 
+    /**
+     * 储藏列表来自 refs/stash 的 reflog（git stash 总会建它）。工作区轮询每隔几秒就问一次，
+     * 文件没变就直接用上次的结果，不再起 git 进程。
+     */
     fun stashList(): List<StashEntry> {
+        val log = gitDirs.common.resolve("logs/refs/stash")
+        if (!log.isFile) return emptyList()
+        val key = log.lastModified() to log.length()
+        stashCache?.let { (k, list) -> if (k == key) return list }
         val format = listOf("%gd", "%H", "%ct", "%gs").joinToString("%x1f")
         val (exit, output) = exec(listOf("stash", "list", "--format=$format"))
-        return if (exit == 0) parseStashList(output) else emptyList()
+        if (exit != 0) return emptyList()
+        return parseStashList(output).also { stashCache = key to it }
+    }
+
+    @Volatile private var stashCache: Pair<Pair<Long, Long>, List<StashEntry>>? = null
+
+    /** 工作区自己的 git 目录（MERGE_HEAD 这些在这里），和多个工作区共用的目录（refs、reflog 在这里）。 */
+    private class GitDirs(val own: File, val common: File)
+
+    // 仓库位置不会变，第一次用到时问一次 git
+    private val gitDirs: GitDirs by lazy {
+        val lines = capture("rev-parse", "--git-dir", "--git-common-dir")?.lines().orEmpty()
+        val own = workTree.resolve(lines.getOrNull(0) ?: ".git")
+        GitDirs(own, lines.getOrNull(1)?.let(workTree::resolve) ?: own)
     }
 
     /** 收起工作区的全部改动，包括未跟踪的文件。 */
@@ -250,7 +271,7 @@ class GitCli(private val workTree: File) {
     private fun hasUntracked(entry: StashEntry) = capture("rev-parse", "-q", "--verify", "${entry.id}^3") != null
 
     fun currentOperation(): GitOperation? {
-        val gitDir = workTree.resolve(capture("rev-parse", "--git-dir") ?: ".git")
+        val gitDir = gitDirs.own
         return when {
             gitDir.resolve("MERGE_HEAD").exists() -> GitOperation.MERGE
             gitDir.resolve("CHERRY_PICK_HEAD").exists() -> GitOperation.CHERRY_PICK
