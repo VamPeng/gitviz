@@ -193,10 +193,9 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                 val before = state
                 // 刷新时只读回看得到的部分：列表最底下那一行和选中的提交都要还在，滚到的位置才不变。
                 // 再往下的等滚过去再读，不用把之前翻过的几万个提交一次读回来
-                val needed = before?.let { st ->
-                    val lastVisible = commitListState.layoutInfo.visibleItemsInfo.lastOrNull()?.key as? String
-                    listOfNotNull(lastVisible, selected?.id).mapNotNull { st.indexById[it] }.maxOrNull()?.plus(1)
-                } ?: 0
+                val lastVisible = commitListState.layoutInfo.visibleItemsInfo.lastOrNull()?.key as? String
+                val wanted = listOfNotNull(lastVisible, selected?.id)
+                val needed = before?.let { st -> wanted.mapNotNull { st.indexById[it] }.maxOrNull()?.plus(1) } ?: 0
                 val newState = withContext(Dispatchers.IO) {
                     val repo = GitRepo.open(dir)
                     try {
@@ -204,7 +203,12 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                         val same = before?.takeIf { it.repo.repository.directory == repo.repository.directory }
                         val keep = if (same != null) needed else 0
                         val history = repo.openHistory(same?.history?.path)
-                        val result = history.load(maxOf(GitRepo.PAGE_SIZE, keep))
+                        var result = history.load(maxOf(GitRepo.PAGE_SIZE, keep))
+                        // 新提交会把旧提交往后挤，按原来的条数可能正好读不到它们，就再读一页
+                        if (same != null && result.truncated) {
+                            val ids = result.commits.mapTo(HashSet()) { it.id }
+                            if (wanted.any { it !in ids }) result = history.load(GitRepo.PAGE_SIZE)
+                        }
                         RepoState.create(repo, result, repo.repository.resolve("HEAD")?.name, history)
                     } catch (e: Throwable) {
                         repo.close()
