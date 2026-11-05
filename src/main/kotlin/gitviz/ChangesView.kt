@@ -19,6 +19,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.key.*
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -182,6 +183,13 @@ private fun CommitBox(cli: GitCli, branch: String?, stagedCount: Int, onCommit: 
     var amend by remember(cli) { mutableStateOf(false) }
     val canCommit = message.isNotBlank() && (amend || stagedCount > 0)
     val shape = RoundedCornerShape(5.dp)
+    fun commit() {
+        if (!canCommit) return
+        onCommit(message.trim(), amend) {
+            message = ""
+            amend = false
+        }
+    }
 
     Column(Modifier.fillMaxWidth().background(Palette.Rail).padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -202,19 +210,21 @@ private fun CommitBox(cli: GitCli, branch: String?, stagedCount: Int, onCommit: 
             message, { message = it },
             textStyle = TextStyle(color = Palette.Ink, fontSize = TypeScale.Body, fontFamily = UiFont),
             cursorBrush = SolidColor(Palette.Accent),
-            modifier = Modifier.fillMaxWidth().height(64.dp).background(Palette.Ground, shape).border(1.dp, Palette.Line, shape).padding(8.dp),
+            modifier = Modifier.fillMaxWidth().height(110.dp)
+                // Cmd+Enter 提交；不能提交时也吞掉这个按键，免得插进一个换行
+                .onPreviewKeyEvent { e ->
+                    if (e.key != Key.Enter || !e.isMetaPressed) return@onPreviewKeyEvent false
+                    if (e.type == KeyEventType.KeyDown) commit()
+                    true
+                }
+                .background(Palette.Ground, shape).border(1.dp, Palette.Line, shape).padding(8.dp),
         )
         val target = branch ?: t("HEAD", "当前提交")
         Text(
             if (amend) t("Amend last commit", "修改上一次提交") else t("Commit to $target · ${countOf(stagedCount, "file")}", "提交到 $target · $stagedCount 个文件"),
             fontSize = TypeScale.Body, fontWeight = FontWeight.SemiBold, color = Palette.OnAccent, textAlign = TextAlign.Center, maxLines = 1,
             modifier = Modifier.fillMaxWidth().alpha(if (canCommit) 1f else 0.45f).clip(shape).background(Palette.Accent)
-                .clickable(enabled = canCommit) {
-                    onCommit(message.trim(), amend) {
-                        message = ""
-                        amend = false
-                    }
-                }
+                .clickable(enabled = canCommit) { commit() }
                 .padding(vertical = 6.dp),
         )
     }
