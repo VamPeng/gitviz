@@ -51,6 +51,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import java.awt.FileDialog
+import java.awt.Frame
 import java.io.File
 import javax.swing.JFileChooser
 
@@ -237,11 +239,11 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
     LaunchedEffect(Unit) { open(initialDir, quiet = !reportInitialError, minShowMs = STARTUP_MIN_SHOW_MS) }
     DisposableEffect(Unit) { onDispose { state?.repo?.close() } }
 
-    val chooseAndOpen = { chooseDirectory(t("Choose a git repository folder", "选择 git 仓库目录"))?.let { open(it) }; Unit }
+    val chooseAndOpen = { chooseDirectory(t("Choose a git repository folder", "选择 git 仓库目录"), state?.repo?.workTree?.parentFile)?.let { open(it) }; Unit }
 
     fun askClone() {
         dialog = DialogSpec(t("Clone repository", "克隆仓库"), t("Enter the repository URL. Next, choose where to save it.", "输入仓库地址，下一步选择保存到哪个文件夹。"), t("Next", "下一步"), input = t("Repository URL", "仓库地址")) { url, _ ->
-            val parent = chooseDirectory(t("Choose where to save it", "选择保存到哪个文件夹")) ?: return@DialogSpec
+            val parent = chooseDirectory(t("Choose where to save it", "选择保存到哪个文件夹"), state?.repo?.workTree?.parentFile) ?: return@DialogSpec
             val name = repoNameFromUrl(url)
             scope.launch {
                 net = NetStatus(t("Cloning", "正在克隆"), url, NetState.RUNNING)
@@ -869,8 +871,21 @@ internal fun StatusBar(state: RepoState, loading: Boolean = false, onCancel: (()
     }
 }
 
-private fun chooseDirectory(title: String): File? {
-    val chooser = JFileChooser().apply {
+private fun chooseDirectory(title: String, startDir: File? = null): File? {
+    if (isMac) {
+        // macOS 用系统的 NSOpenPanel：有侧边栏和搜索，跟随系统深色模式和语言
+        System.setProperty("apple.awt.fileDialogForDirectories", "true")
+        try {
+            val dialog = FileDialog(null as Frame?, title, FileDialog.LOAD)
+            startDir?.takeIf { it.isDirectory }?.let { dialog.directory = it.path }
+            dialog.isVisible = true
+            val name = dialog.file ?: return null
+            return File(dialog.directory, name)
+        } finally {
+            System.clearProperty("apple.awt.fileDialogForDirectories")
+        }
+    }
+    val chooser = JFileChooser(startDir?.takeIf { it.isDirectory }).apply {
         fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
         dialogTitle = title
     }
