@@ -145,7 +145,7 @@ class ScreenshotTest {
     fun `menus and dialogs render`() {
         val commit = CommitInfo("abcdef0123", emptyList(), "m", "m", "t", "t@t", 0, emptyList())
         val actions = GitActions({}, { _, _, _ -> }, {})
-        renderPopup("menu") { GitMenuPopup(commitMenu(commit, isHead = false, "main", actions)) {} }
+        renderPopup("menu") { GitMenuPopup(commitMenu(commit, isHead = false, "main", actions), onDismiss = {}) }
         renderPopup("reset") { ActionDialog(DialogSpec("重置 main", "把 main 移到 abcdef0。", "重置", danger = true, modes = true) { _, _ -> }) {} }
     }
 
