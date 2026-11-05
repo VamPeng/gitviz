@@ -102,4 +102,24 @@ class GraphLayoutTest {
         val commits = listOf(commit("b", "a"), commit("a", "not-loaded"))
         assertEquals(listOf("b", "a"), ids(GraphLayout.topoSort(commits)))
     }
+
+    @Test
+    fun `layout added in pieces has the same shape as all at once`() {
+        val commits = listOf(
+            commit("m2", "m1", "g"), commit("g", "f"), commit("m1", "x", "f"), commit("x", "a"),
+            commit("f", "a"), commit("a", "r"), commit("r"),
+        )
+        val whole = GraphLayout.compute(commits)
+        val builder = GraphBuilder()
+        val first = builder.add(commits.take(3))
+        val all = builder.add(commits.drop(3))
+        assertEquals(3, first.size) // 之前拿到的快照不随后面的 add 变
+        assertEquals(commits.size, builder.size)
+        assertEquals(whole.map { it.node }, all.map { it.node })
+        assertEquals(whole.map { it.width }, all.map { it.width })
+        assertEquals(whole.map { it.passThrough.toList() }, all.map { it.passThrough.toList() })
+        assertEquals(whole.map { it.incoming.toList() }, all.map { it.incoming.toList() })
+        assertEquals(whole.map { it.outgoing.toList() }, all.map { it.outgoing.toList() })
+        assertEquals(whole.map { it.nodeTrack.line }, all.map { it.nodeTrack.line })
+    }
 }

@@ -234,7 +234,9 @@ class GitRepoTest {
             val first = pager.load(2)
             assertEquals(listOf("c4", "c3"), first.commits.map { it.shortMessage })
             assertTrue(first.truncated)
-            assertEquals(listOf("c4", "c3", "c2", "c1"), pager.load(2).commits.map { it.shortMessage })
+            val second = pager.load(2)
+            assertEquals(listOf("c4", "c3", "c2", "c1"), second.commits.map { it.shortMessage })
+            assertEquals(2, second.appendedFrom) // 前一页没动，新的接在后面
             val last = pager.load(2)
             assertEquals(5, last.commits.size)
             assertFalse(last.truncated)
@@ -271,6 +273,25 @@ class GitRepoTest {
             assertTrue(messages.indexOf("skewed-child") < messages.indexOf("old-clock-parent"))
             assertTrue(messages.indexOf("side") < messages.indexOf("old-clock-parent"))
             assertEquals("root", messages.last())
+        }
+    }
+
+    @Test
+    fun `a skewed child on a later page makes the whole history re-sort`() {
+        commit("root", "a", 1_700_000_000)
+        commit("old-clock-parent", "b", 1_700_009_000)
+        git.branchCreate().setName("side").call()
+        git.checkout().setName("side").call()
+        commit("skewed-child", "c", 1_700_000_100)
+        git.checkout().setName("main").call()
+
+        GitRepo.open(dir).use { repo ->
+            val pager = repo.openHistory()
+            // 按时间先读到 old-clock-parent，它的子提交 skewed-child 在后一页才读到
+            assertEquals(listOf("old-clock-parent"), pager.load(1).commits.map { it.shortMessage })
+            val next = pager.load(1)
+            assertEquals(0, next.appendedFrom)
+            assertEquals(listOf("skewed-child", "old-clock-parent"), next.commits.map { it.shortMessage })
         }
     }
 

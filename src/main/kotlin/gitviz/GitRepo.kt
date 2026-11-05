@@ -90,12 +90,16 @@ data class BlameLine(
     val timeSeconds: Long,
 )
 
-/** commits 是拓扑序。truncated 表示历史还没读完，可以继续加载。 */
+/**
+ * commits 是拓扑序。truncated 表示历史还没读完，可以继续加载。
+ * appendedFrom 之前的提交和上一页返回的一模一样，新读到的只接在后面；为 0 表示整个重排过。
+ */
 data class LoadResult(
     val commits: List<CommitInfo>,
     val truncated: Boolean,
     val currentBranch: String?,
     val refs: List<RefTarget>,
+    val appendedFrom: Int = 0,
 )
 
 /** 全库搜索的结果。complete 为 false 表示中途停下（取消或到了上限），后面可能还有。 */
@@ -109,8 +113,9 @@ internal fun matchesQuery(q: String, shortMessage: String, author: String, id: S
 /**
  * 分页读提交历史：一直开着一个 RevWalk，每次接着往下读。
  *
- * 提交时间不准时，子提交可能比父提交晚读到，甚至落在下一页，所以每页都把已读的全部重新排拓扑序，
- * 而不是只排新读的这一页。几万个提交重排一次是几十毫秒。
+ * 通常新的一页只要自己排好拓扑序接在后面，前面的不用动，分支图也只用接着往下排。
+ * 两种情况要把已读的全部重排：提交时间不准，新读到的提交是前面某个提交的子提交；
+ * 或者有储藏所基于的提交刚读到，储藏要按时间插回前面。
  *
  * 不是线程安全的，同一时间只能有一个线程调用。
  */
@@ -122,6 +127,11 @@ class CommitPager internal constructor(private val repo: GitRepo, val path: Stri
     private val refs = labels.flatMap { (id, list) -> list.filter { it.kind != RefKind.HEAD }.map { RefTarget(it, id) } }
     private val currentBranch = repo.repository.branch
     private val walkOrder = ArrayList<CommitInfo>()
+    private val loadedIds = HashSet<String>()
+    // 已经挂到图上的储藏
+    private val attached = HashSet<String>()
+    // 到目前为止排好的拓扑序
+    private val sorted = ArrayList<CommitInfo>()
     private var pending: RevCommit? = null
     private var exhausted = false
     private var closed = false
@@ -137,16 +147,31 @@ class CommitPager internal constructor(private val repo: GitRepo, val path: Stri
     /** 再读最多 count 个提交，返回到目前为止读到的全部。 */
     fun load(count: Int): LoadResult {
         check(!closed) { t("Repository is closed", "仓库已关闭") }
+        val chunk = ArrayList<CommitInfo>()
+        var childOfLoaded = false
         repeat(count) {
             val c = next() ?: return@repeat
-            with(repo) { walkOrder += c.toInfo(labels[c.name].orEmpty()) }
+            val info = with(repo) { c.toInfo(labels[c.name].orEmpty()) }
+            // 说明、作者都已经抄进 CommitInfo，RevWalk 里那份原始内容不再需要。大仓库里能省下近百 MB
+            c.disposeBody()
+            if (info.parents.any { it in loadedIds }) childOfLoaded = true
+            chunk += info
         }
+        walkOrder += chunk
+        chunk.mapTo(loadedIds) { it.id }
         // 刚好读满一页时还不知道后面有没有，先看一眼下一个，留到下一页
         if (pending == null && !exhausted) pending = walk.next().also { if (it == null) exhausted = true }
         // 储藏所基于的提交加载了，它才挂得上去
-        val loaded = walkOrder.mapTo(HashSet()) { it.id }
-        val commits = insertByTime(walkOrder, stashes.filter { it.parents.firstOrNull() in loaded })
-        return LoadResult(GraphLayout.topoSort(commits), pending != null, currentBranch, refs)
+        val newStashes = stashes.filter { it.id !in attached && it.parents.firstOrNull() in loadedIds }
+        val from = if (sorted.isEmpty() || childOfLoaded || newStashes.isNotEmpty()) {
+            newStashes.mapTo(attached) { it.id }
+            sorted.clear()
+            sorted += GraphLayout.topoSort(insertByTime(walkOrder, stashes.filter { it.id in attached }))
+            0
+        } else {
+            sorted.size.also { sorted += GraphLayout.topoSort(chunk) }
+        }
+        return LoadResult(sorted.toList(), pending != null, currentBranch, refs, from)
     }
 
     override fun close() {

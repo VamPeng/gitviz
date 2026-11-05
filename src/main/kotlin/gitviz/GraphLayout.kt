@@ -106,36 +106,37 @@ object GraphLayout {
     }
 
     /** commits 必须是拓扑序（子提交在父提交之前）。 */
-    fun compute(commits: List<CommitInfo>, colors: BranchColors = BranchColors.None): List<GraphRow> {
-        // lanes[i] = 第 i 列正在等待的提交 id，null 表示空闲；tracks[i] 是这一列上那条线
-        val lanes = ArrayList<String?>()
-        val tracks = ArrayList<Track?>()
-        val rows = ArrayList<GraphRow>(commits.size)
-        val byId = commits.associateBy { it.id }
-        val named = colors.used
-        var nextLine = 0
-        var nextFresh = 0
+    fun compute(commits: List<CommitInfo>, colors: BranchColors = BranchColors.None): List<GraphRow> =
+        GraphBuilder(colors).add(commits)
+}
 
-        fun freeSlot(exclude: Int = -1): Int {
-            val i = lanes.indices.firstOrNull { lanes[it] == null && it != exclude }
-            if (i != null) return i
-            lanes += null
-            tracks += null
-            return lanes.lastIndex
-        }
+/**
+ * 一段一段地排分支图：每次 [add] 接着上次停下的地方往下排，前面排好的行不再动。
+ * 翻页时只排新读到的提交，不用每页都从头排一遍。
+ *
+ * 不是线程安全的，同一时间只能有一个线程调用。
+ */
+class GraphBuilder(private val colors: BranchColors = BranchColors.None) {
+    // lanes[i] = 第 i 列正在等待的提交 id，null 表示空闲；tracks[i] 是这一列上那条线
+    private val lanes = ArrayList<String?>()
+    private val tracks = ArrayList<Track?>()
+    private val rows = ArrayList<GraphRow>()
+    // 已排过的提交，合并提交的另一个父提交已经读到时，新线用它的分支颜色
+    private val byId = HashMap<String, CommitInfo>()
+    private val named = colors.used
+    private var nextLine = 0
+    private var nextFresh = 0
 
-        // 没有分支名的线：挑一个没被现有的线、也没被有名分支占用的颜色，都占满了再放宽
-        fun freshColor(): Int {
-            val active = tracks.filterNotNull().map { it.color }.toSet()
-            val pick = (0 until LANE_COLOR_COUNT).map { (nextFresh + it) % LANE_COLOR_COUNT }.let { order ->
-                order.firstOrNull { it !in active && it !in named } ?: order.firstOrNull { it !in active } ?: order.first()
-            }
-            nextFresh = pick + 1
-            return pick
-        }
+    /** 已经排了多少行。 */
+    val size: Int get() = rows.size
 
-        // 一条新线从 commit 开始：挂着分支就用分支的颜色
-        fun newTrack(commit: CommitInfo?) = Track(commit?.let { colors.indexFor(it) } ?: freshColor(), nextLine++)
+    /**
+     * 接着排 commits，返回到目前为止的全部行（一份快照，之后再 add 也不会变）。
+     * commits 接在之前排过的后面，合起来必须是拓扑序。
+     */
+    fun add(commits: List<CommitInfo>): List<GraphRow> {
+        for (c in commits) byId[c.id] = c
+        rows.ensureCapacity(rows.size + commits.size)
 
         for (c in commits) {
             val incoming = lanes.indices.filter { lanes[it] == c.id }
@@ -182,6 +183,27 @@ object GraphLayout {
                 tracks.removeAt(tracks.lastIndex)
             }
         }
-        return rows
+        return rows.toList()
     }
+
+    private fun freeSlot(exclude: Int = -1): Int {
+        val i = lanes.indices.firstOrNull { lanes[it] == null && it != exclude }
+        if (i != null) return i
+        lanes += null
+        tracks += null
+        return lanes.lastIndex
+    }
+
+    // 没有分支名的线：挑一个没被现有的线、也没被有名分支占用的颜色，都占满了再放宽
+    private fun freshColor(): Int {
+        val active = tracks.filterNotNull().map { it.color }.toSet()
+        val pick = (0 until LANE_COLOR_COUNT).map { (nextFresh + it) % LANE_COLOR_COUNT }.let { order ->
+            order.firstOrNull { it !in active && it !in named } ?: order.firstOrNull { it !in active } ?: order.first()
+        }
+        nextFresh = pick + 1
+        return pick
+    }
+
+    // 一条新线从 commit 开始：挂着分支就用分支的颜色
+    private fun newTrack(commit: CommitInfo?) = Track(commit?.let { colors.indexFor(it) } ?: freshColor(), nextLine++)
 }

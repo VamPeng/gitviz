@@ -103,6 +103,8 @@ internal class RepoState(
     val rows: List<GraphRow>,
     val headId: String?,
     val history: CommitPager? = null,
+    // 排出 rows 的那个 GraphBuilder，下一页接着它往下排
+    private val layout: GraphBuilder? = null,
 ) {
     val branchColors = BranchColors(result.refs)
     val indexById: Map<String, Int> = result.commits.withIndex().associate { (i, c) -> c.id to i }
@@ -111,7 +113,19 @@ internal class RepoState(
     fun loadMore(count: Int): RepoState {
         val pager = checkNotNull(history)
         val next = pager.load(count)
-        return RepoState(repo, next, GraphLayout.compute(next.commits, BranchColors(next.refs)), headId, pager)
+        val from = next.appendedFrom
+        // 前面的没动，而且 layout 正好排到这里，就只排新的；否则从头排
+        if (layout != null && from > 0 && from == result.commits.size && layout.size == from) {
+            return RepoState(repo, next, layout.add(next.commits.subList(from, next.commits.size)), headId, pager, layout)
+        }
+        return create(repo, next, headId, pager)
+    }
+
+    companion object {
+        fun create(repo: GitRepo, result: LoadResult, headId: String?, history: CommitPager? = null): RepoState {
+            val layout = GraphBuilder(BranchColors(result.refs))
+            return RepoState(repo, result, layout.add(result.commits), headId, history, layout)
+        }
     }
 }
 
@@ -148,15 +162,21 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
             loading = true; error = null
             try {
                 val before = state
+                // 刷新时只读回看得到的部分：列表最底下那一行和选中的提交都要还在，滚到的位置才不变。
+                // 再往下的等滚过去再读，不用把之前翻过的几万个提交一次读回来
+                val needed = before?.let { st ->
+                    val lastVisible = commitListState.layoutInfo.visibleItemsInfo.lastOrNull()?.key as? String
+                    listOfNotNull(lastVisible, selected?.id).mapNotNull { st.indexById[it] }.maxOrNull()?.plus(1)
+                } ?: 0
                 val newState = withContext(Dispatchers.IO) {
                     val repo = GitRepo.open(dir)
                     try {
-                        // 刷新同一个仓库时读回原来那么多，滚到的位置还在；只看某个文件时继续只看它
+                        // 只看某个文件时继续只看它
                         val same = before?.takeIf { it.repo.repository.directory == repo.repository.directory }
-                        val keep = same?.result?.commits?.size ?: 0
+                        val keep = if (same != null) needed else 0
                         val history = repo.openHistory(same?.history?.path)
                         val result = history.load(maxOf(GitRepo.PAGE_SIZE, keep))
-                        RepoState(repo, result, GraphLayout.compute(result.commits, BranchColors(result.refs)), repo.repository.resolve("HEAD")?.name, history)
+                        RepoState.create(repo, result, repo.repository.resolve("HEAD")?.name, history)
                     } catch (e: Throwable) {
                         repo.close()
                         throw e
@@ -341,7 +361,7 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                         val pager = now.repo.openHistory(path)
                         try {
                             val result = pager.load(GitRepo.PAGE_SIZE)
-                            RepoState(now.repo, result, GraphLayout.compute(result.commits, BranchColors(result.refs)), now.headId, pager)
+                            RepoState.create(now.repo, result, now.headId, pager)
                         } catch (e: Throwable) {
                             pager.close()
                             throw e

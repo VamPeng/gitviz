@@ -45,7 +45,7 @@ object PerfBench {
         var state = time("first page (open history + load 2000 + layout)") {
             val h = repo.openHistory()
             val r = h.load(GitRepo.PAGE_SIZE)
-            RepoState(repo, r, GraphLayout.compute(r.commits, BranchColors(r.refs)), repo.repository.resolve("HEAD")?.name, h)
+            RepoState.create(repo, r, repo.repository.resolve("HEAD")?.name, h)
         }
         println("  refs: ${state.result.refs.size}, max graph width: ${state.rows.maxOfOrNull { it.width }}")
 
@@ -81,8 +81,14 @@ object PerfBench {
         median("GraphLayout.compute (all loaded)", 5) { GraphLayout.compute(commits, BranchColors(state.result.refs)) }
         median("RepoState index build (all loaded)", 5) { commits.withIndex().associate { (i, c) -> c.id to i } }
 
-        // 刷新：App.open 会把已加载的那么多一次读回来
-        time("refresh with everything loaded (reopen)") {
+        // 刷新：只读回看得到的部分（列表停在顶部时就是一页）
+        time("refresh at the top (reopen, one page)") {
+            GitRepo.open(dir).use { r ->
+                r.openHistory().use { h -> RepoState.create(r, h.load(GitRepo.PAGE_SIZE), null) }
+            }
+        }
+        // 滚到最底下再刷新，要全部读回来
+        time("refresh scrolled to the very end (reopen)") {
             GitRepo.open(dir).use { r ->
                 r.openHistory().use { h ->
                     val res = h.load(maxOf(GitRepo.PAGE_SIZE, n))
