@@ -4,7 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
@@ -49,7 +48,7 @@ internal fun StashView(
                 Text(t("No stashes. Click “Stash” in the toolbar to set aside your working tree changes.", "没有储藏。点工具栏的「储藏」，可以把工作区的改动先收起来。"), fontSize = TypeScale.Body, color = Palette.Muted,
                     modifier = Modifier.padding(16.dp))
             }
-            LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
+            ScrollList(Modifier.fillMaxWidth().weight(1f)) {
                 items(stashes, key = { it.id }) { entry -> StashRow(entry, entry == current) { onSelect(entry.id) } }
             }
         }
@@ -99,7 +98,7 @@ private fun StashDetail(cli: GitCli, entry: StashEntry, a: GitActions, modifier:
         Loaded(entry.id, Modifier.fillMaxWidth().weight(1f), { cli.stashFiles(entry) }) { files ->
             val current = selectedFile?.takeIf { it in files } ?: files.firstOrNull()
             Row(Modifier.fillMaxWidth().weight(1f)) {
-                LazyColumn(Modifier.width(260.dp).fillMaxHeight()) {
+                ScrollList(Modifier.width(260.dp).fillMaxHeight()) {
                     items(files, key = { it.path }) { f ->
                         Row(
                             Modifier.fillMaxWidth().height(30.dp).hoverRow().rowHighlight(f == current).clickable { selectedFile = f }.padding(horizontal = 14.dp),

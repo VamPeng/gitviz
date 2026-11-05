@@ -70,7 +70,7 @@ internal fun ConflictView(
         }
         HorizontalDivider()
         Row(Modifier.fillMaxWidth().weight(1f)) {
-            LazyColumn(Modifier.width(248.dp).fillMaxHeight().background(Palette.Rail)) {
+            ScrollList(Modifier.width(248.dp).fillMaxHeight().background(Palette.Rail)) {
                 items(files, key = { it.path }) { f ->
                     Row(
                         Modifier.fillMaxWidth().height(32.dp).hoverRow().rowHighlight(f == current)

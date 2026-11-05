@@ -1,6 +1,9 @@
 package gitviz
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.TooltipArea
+import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -10,12 +13,20 @@ import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -140,6 +151,21 @@ fun Avatar(name: String) {
     }
 }
 
+/** 鼠标停留一会儿后在旁边浮出一行说明文字。 */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun Hint(text: String, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    TooltipArea(
+        tooltip = {
+            Text(text, fontSize = TypeScale.Caption, color = Palette.Ink,
+                modifier = Modifier.background(Palette.Raised, RoundedCornerShape(4.dp)).border(1.dp, Palette.Line, RoundedCornerShape(4.dp))
+                    .padding(horizontal = 8.dp, vertical = 4.dp))
+        },
+        modifier = modifier,
+        content = content,
+    )
+}
+
 /** 文件改动的 A、M、D 标记。 */
 @Composable
 fun ChangeBadge(tag: String, color: Color) {
@@ -168,4 +194,18 @@ fun Modifier.hoverRow() = composed {
 @OptIn(ExperimentalComposeUiApi::class)
 fun Modifier.onRightClick(action: () -> Unit) = onPointerEvent(PointerEventType.Press) {
     if (it.buttons.isSecondaryPressed) action()
+}
+
+/** 右边带竖向滚动条的列表。列表右侧留出 10dp 给滚动条，不压住行里的按钮。 */
+@Composable
+internal fun ScrollList(
+    modifier: Modifier,
+    state: LazyListState = rememberLazyListState(),
+    contentPadding: PaddingValues = PaddingValues(),
+    content: LazyListScope.() -> Unit,
+) {
+    Box(modifier) {
+        LazyColumn(Modifier.fillMaxSize().padding(end = 10.dp), state = state, contentPadding = contentPadding, content = content)
+        VerticalScrollbar(rememberScrollbarAdapter(state), Modifier.align(Alignment.CenterEnd).fillMaxHeight())
+    }
 }

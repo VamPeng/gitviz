@@ -4,7 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -67,8 +66,8 @@ internal fun ChangesView(
 
     Row(modifier) {
         Column(Modifier.width(340.dp).fillMaxHeight()) {
-            LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
-                item { GroupHeader(t("Unstaged", "未暂存"), unstaged.size) }
+            ScrollList(Modifier.fillMaxWidth().weight(1f)) {
+                item { GroupHeader(t("Unstaged", "未暂存"), unstaged.size, divider = false) }
                 items(unstaged, key = { "u:" + it.path }) { f ->
                     ChangeRow(f, f.worktree, current == Selection(f.path, false), { selection = Selection(f.path, false) }) {
                         RowAction(t("Discard", "丢弃"), Palette.Removed) { toDiscard = f }
@@ -134,11 +133,12 @@ internal fun ChangesView(
 }
 
 @Composable
-private fun GroupHeader(title: String, count: Int) {
+private fun GroupHeader(title: String, count: Int, divider: Boolean = true) {
+    // 分隔线画在标题上方，把上一组和这一组隔开；第一组上面已经有工具栏的分隔线
+    if (divider) HorizontalDivider()
     Row(Modifier.fillMaxWidth().height(28.dp).padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
         Text("$title · $count", fontSize = TypeScale.Small, color = Palette.Muted)
     }
-    HorizontalDivider()
 }
 
 internal fun statusBadge(code: Char): Pair<String, Color> = when (code) {
@@ -161,14 +161,9 @@ private fun ChangeRow(file: WorkingFile, code: Char, selected: Boolean, onSelect
     ) {
         val (tag, color) = statusBadge(code)
         ChangeBadge(tag, color)
-        val dir = file.path.substringBeforeLast('/', "")
-        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(file.path.substringAfterLast('/'), fontSize = TypeScale.Body, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false))
-            if (dir.isNotEmpty()) {
-                Text(dir, fontSize = TypeScale.Caption, color = Palette.Faint, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false))
-            }
+        // 只显示文件名，完整路径放在悬浮提示里
+        Hint(file.path, Modifier.weight(1f)) {
+            Text(file.path.substringAfterLast('/'), fontSize = TypeScale.Body, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         actions()
     }

@@ -1,7 +1,5 @@
 package gitviz
 
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.TooltipArea
 import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -77,17 +75,9 @@ internal fun rememberNowSeconds(): Long {
 }
 
 /** 相对时间，鼠标停留时显示完整时间。 */
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun RelativeTime(seconds: Long, nowSeconds: Long, modifier: Modifier = Modifier) {
-    TooltipArea(
-        tooltip = {
-            Text(formatTime(seconds), fontSize = TypeScale.Caption, color = Palette.Ink,
-                modifier = Modifier.background(Palette.Raised, RoundedCornerShape(4.dp)).border(1.dp, Palette.Line, RoundedCornerShape(4.dp))
-                    .padding(horizontal = 8.dp, vertical = 4.dp))
-        },
-        modifier = modifier,
-    ) {
+    Hint(formatTime(seconds), modifier) {
         Text(relativeTime(seconds, nowSeconds), maxLines = 1, softWrap = false, fontSize = TypeScale.Small, color = Palette.Muted)
     }
 }
