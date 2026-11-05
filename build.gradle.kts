@@ -35,6 +35,10 @@ compose.desktop {
             modules("java.instrument", "java.management", "java.security.jgss", "java.sql", "jdk.unsupported")
             packageName = "GitViz"
             packageVersion = "1.0.0" // DMG 要求主版本号大于 0
+            // 图标由 scripts/icons.py 从 design/icon 的 SVG 导出
+            macOS { iconFile.set(project.file("packaging/icons/GitViz.icns")) }
+            windows { iconFile.set(project.file("packaging/icons/GitViz.ico")) }
+            linux { iconFile.set(project.file("packaging/icons/GitViz.png")) }
         }
     }
 }

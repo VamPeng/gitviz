@@ -16,6 +16,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
@@ -62,15 +64,33 @@ fun main(args: Array<String>) {
             }
         }
     }
+    val appIcon = AppIcon.load()
+    // 打包后的 .app 用 Info.plist 里的 .icns；./gradlew run 时 Dock 里默认是 Java 图标，这里换掉
+    if (appIcon != null && java.awt.Taskbar.isTaskbarSupported() &&
+        java.awt.Taskbar.getTaskbar().isSupported(java.awt.Taskbar.Feature.ICON_IMAGE)
+    ) {
+        java.awt.Taskbar.getTaskbar().iconImage = appIcon
+    }
     application {
         if (isMac) {
             GlassWindow("GitViz", size, onClose = ::exitApplication) { root() }
         } else {
-            Window(onCloseRequest = ::exitApplication, title = "GitViz", state = rememberWindowState(size = size)) {
+            Window(
+                onCloseRequest = ::exitApplication,
+                title = "GitViz",
+                icon = appIcon?.let { remember { BitmapPainter(it.toComposeImageBitmap()) } },
+                state = rememberWindowState(size = size),
+            ) {
                 root()
             }
         }
     }
+}
+
+/** 应用图标，来自 resources/icon.png（scripts/icons.py 导出）。读不到就用系统默认图标。 */
+private object AppIcon {
+    fun load(): java.awt.image.BufferedImage? =
+        AppIcon::class.java.getResourceAsStream("/icon.png")?.use { javax.imageio.ImageIO.read(it) }
 }
 
 private enum class MainView { HISTORY, CHANGES, STASH, CONFLICT, SETTINGS }
@@ -581,7 +601,10 @@ private fun Welcome(loading: Boolean, recent: List<String>, onRecent: (String) -
         } else {
             Column(Modifier.width(560.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("GitViz", fontSize = 28.sp, fontWeight = FontWeight.SemiBold)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        GitVizMark(size = 40.dp)
+                        Text("GitViz", fontSize = 28.sp, fontWeight = FontWeight.SemiBold)
+                    }
                     Text("选择一个本地 git 仓库，查看它的分支和提交。", fontSize = TypeScale.Body, color = Palette.Muted)
                 }
                 val shape = RoundedCornerShape(6.dp)
