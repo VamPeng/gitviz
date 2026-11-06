@@ -132,7 +132,7 @@ private const val MIN_RELOAD_GAP_MS = 1500L
 /** 监听期间没有变化时，多久兜底读一次。 */
 private const val FALLBACK_RELOAD_MS = 30_000L
 
-private enum class MainView { HISTORY, CHANGES, FILES, STASH, CONFLICT, SETTINGS, REFLOG, RECOVERY, COMPARE }
+private enum class MainView { HISTORY, CHANGES, FILES, STASH, CONFLICT, SETTINGS, REFLOG, RECOVERY, INSIGHTS, REPLAY, TOOLS, FORGE, AI }
 
 /** 打开的仓库和已加载的那部分历史。不可变，每加载一页换一个新对象。 */
 internal class RepoState(
@@ -635,11 +635,18 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean, onExit: 
 
     LaunchedEffect(cli) { rootFocus.requestFocus() }
     val commitDraft = remember(cli) { CommitDraft() }
+    val aiConnection = remember { AiConnection() }
+    var aiScope by remember(cli) { mutableStateOf(AiScope()) }
     val available = cli != null && !loading && !operationBusy
     val registry = CommandRegistry(listOf(
         AppCommand("search", t("Search history", "搜索历史"), s != null, "⌘/Ctrl F") { view = MainView.HISTORY; scope.launch { withFrameNanos { }; searchFocus.requestFocus() } },
         AppCommand("refresh", t("Refresh repository", "刷新仓库"), s != null && !loading && !operationBusy, "⌘/Ctrl R") { (s?.repo?.workTree ?: s?.repo?.repository?.directory)?.let { open(it, reportSuccess = true) } },
         AppCommand("changes", t("Local changes", "本地改动"), cli != null) { view = MainView.CHANGES },
+        AppCommand("insights", t("Repository insights", "统计和洞察"), s != null) { view = MainView.INSIGHTS },
+        AppCommand("ai", t("AI assistance", "AI 辅助"), cli != null) { view = MainView.AI },
+        AppCommand("forge", t("Hosting platform", "托管平台"), cli != null) { view = MainView.FORGE },
+        AppCommand("tools", t("Repository tools (Beta)", "仓库工具（Beta）"), s != null) { view = MainView.TOOLS },
+        AppCommand("replay", t("Timeline replay", "时间轴回放"), s != null) { view = MainView.REPLAY },
         AppCommand("interactive-rebase", t("Interactive rebase…", "交互式变基…"), available && !inConflict && currentBranch != null) { interactiveBase = "HEAD^" },
         AppCommand("commit", t("Commit staged changes", "提交暂存改动"), available && !inConflict && commitDraft.message.isNotBlank() && (commitDraft.amend || working.any { it.hasStaged }), "⌘/Ctrl Enter") {
             runOp(NetStatus(t("Committing", "正在提交"), "", NetState.RUNNING), { describeAction(t("Committing", "正在提交"), t("Committed", "已提交"), it) }, onCompleted = { if (it) { commitDraft.message = ""; commitDraft.amend = false } }) { commit(commitDraft.message.trim(), commitDraft.amend) }
@@ -668,13 +675,17 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean, onExit: 
                     }
                     WorkspaceItem(t("Changes", "本地改动"), Icons.Edit, view == MainView.CHANGES, working.size - conflicted.size) { view = MainView.CHANGES }
                     WorkspaceItem(t("All commits", "所有提交"), Icons.History, view == MainView.HISTORY, 0) { view = MainView.HISTORY }
-                    WorkspaceItem(t("Compare refs", "引用对比"), Icons.Branch, view == MainView.COMPARE, 0) { view = MainView.COMPARE }
-                    WorkspaceItem("Reflog", Icons.History, view == MainView.REFLOG, 0) { view = MainView.REFLOG }
-                    if (cli != null) WorkspaceItem(t("Recovery", "恢复记录"), Icons.History, view == MainView.RECOVERY, 0) { view = MainView.RECOVERY }
+                    WorkspaceItem(t("Insights", "统计和洞察"), Icons.History, view == MainView.INSIGHTS, 0) { view = MainView.INSIGHTS }
+                    if (FeatureVisibility.visible("replay")) WorkspaceItem(t("Timeline replay", "时间轴回放"), Icons.History, view == MainView.REPLAY, 0) { view = MainView.REPLAY }
+                    if (FeatureVisibility.visible("ai")) WorkspaceItem(t("AI assistance", "AI 辅助"), Icons.Edit, view == MainView.AI, 0) { view = MainView.AI }
+                    if (FeatureVisibility.visible("forge")) WorkspaceItem(t("Hosting platform", "托管平台"), Icons.Branch, view == MainView.FORGE, 0) { view = MainView.FORGE }
+                    if (FeatureVisibility.visible("reflog")) WorkspaceItem("Reflog", Icons.History, view == MainView.REFLOG, 0) { view = MainView.REFLOG }
+                    if (cli != null && FeatureVisibility.visible("recovery")) WorkspaceItem(t("Recovery", "恢复记录"), Icons.History, view == MainView.RECOVERY, 0) { view = MainView.RECOVERY }
                     if (workTree != null) {
                         WorkspaceItem(t("Files", "文件"), Icons.Folder, view == MainView.FILES, 0) { view = MainView.FILES }
                     }
                     WorkspaceItem(t("Stashes", "储藏"), Icons.Stash, view == MainView.STASH, stashes.size) { view = MainView.STASH }
+                    WorkspaceItem(t("Repository tools", "仓库工具"), Icons.Wrench, view == MainView.TOOLS, 0, tag = "Beta") { view = MainView.TOOLS }
                 }
                 HorizontalDivider()
                 RefSidebar(
@@ -756,12 +767,26 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean, onExit: 
             if (s == null) {
                 Welcome(loading, Settings.recentRepos, onRecent = { open(File(it), reportSuccess = true) }, onOpen = chooseAndOpen, onClone = ::askClone)
             } else {
-                if (view == MainView.COMPARE) {
-                    ComparisonView(s.repo.workTree ?: s.repo.repository.directory, s.result.refs, { id -> view = MainView.HISTORY; jumpTo(id, direct = true) }, Modifier.fillMaxWidth().weight(1f))
-                } else if (view == MainView.REFLOG) {
+                if (view == MainView.REFLOG) {
                     ReflogView(s.repo, actions, { id -> view = MainView.HISTORY; jumpTo(id, direct = true) }, Modifier.fillMaxWidth().weight(1f), operationBusy || loading || cli == null)
                 } else if (view == MainView.RECOVERY && cli != null) {
                     RecoveryView(cli, actions, workingReloads, operationBusy || loading, Modifier.fillMaxWidth().weight(1f))
+                } else if (view == MainView.INSIGHTS) {
+                    InsightsView(s.repo.workTree ?: s.repo.repository.directory, Modifier.fillMaxWidth().weight(1f))
+                } else if (view == MainView.REPLAY) {
+                    ReplayView(s.repo.workTree ?: s.repo.repository.directory, s.result.refs, { path -> view = MainView.HISTORY; showHistoryOf(path) }, Modifier.fillMaxWidth().weight(1f))
+                } else if (view == MainView.AI && cli != null) {
+                    AiView(cli, aiScope, { aiScope = it }, aiConnection, commitDraft, actions, workingReloads, operationBusy || loading, { view = MainView.CHANGES }, Modifier.fillMaxWidth().weight(1f))
+                } else if (view == MainView.FORGE && cli != null) {
+                    ForgeView(cli, Modifier.fillMaxWidth().weight(1f))
+                } else if (view == MainView.TOOLS) {
+                    RepositoryToolsView(
+                        s.repo.workTree ?: s.repo.repository.directory, cli, s.result.refs, actions, workingReloads, operationBusy || loading,
+                        onOpen = { open(it, reportSuccess = true) },
+                        onOpenCommit = { id -> view = MainView.HISTORY; jumpTo(id, direct = true) },
+                        modifier = Modifier.fillMaxWidth().weight(1f),
+                        onAi = if (FeatureVisibility.visible("ai")) ({ request -> aiScope = AiScope(AiKind.BRANCH, request.left, request.right, request.leftLabel, request.rightLabel); view = MainView.AI }) else null,
+                    )
                 } else if (view == MainView.SETTINGS) {
                     SettingsView(cli, Modifier.fillMaxWidth().weight(1f))
                 } else if (view == MainView.CONFLICT && cli != null) {
@@ -809,6 +834,7 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean, onExit: 
                         modifier = Modifier.fillMaxWidth().weight(1f),
                         externalRevision = workingReloads,
                         draft = commitDraft,
+                        onAi = if (FeatureVisibility.visible("ai")) ({ aiScope = AiScope(); view = MainView.AI }) else null,
                         focus = changesFocus,
                         onFocused = { changesFocus = null },
                     )
@@ -959,7 +985,7 @@ private class Seek(val id: String, val job: Job)
 internal val TitleBarHeight = 52.dp
 
 @Composable
-private fun WorkspaceItem(label: String, icon: String, selected: Boolean, badge: Int, onClick: () -> Unit) {
+private fun WorkspaceItem(label: String, icon: String, selected: Boolean, badge: Int, tag: String? = null, onClick: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().height(28.dp).clip(RoundedCornerShape(5.dp))
             .background(if (selected) Palette.Raised else androidx.compose.ui.graphics.Color.Transparent)
@@ -970,6 +996,10 @@ private fun WorkspaceItem(label: String, icon: String, selected: Boolean, badge:
         Icon(icon, if (selected) Palette.AccentInk else Palette.Muted, size = 15.dp)
         Text(label, fontSize = TypeScale.Body, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
             modifier = Modifier.weight(1f))
+        if (tag != null) {
+            Text(tag, fontSize = TypeScale.Caption, color = Palette.AccentInk,
+                modifier = Modifier.background(Palette.Raised, RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 1.dp))
+        }
         if (badge > 0) {
             Text(
                 "$badge", fontSize = TypeScale.Caption, fontWeight = FontWeight.SemiBold, color = Palette.OnAccent,

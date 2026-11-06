@@ -4,6 +4,17 @@ import androidx.compose.ui.input.key.Key
 import kotlin.test.*
 
 class CommandsTest {
+    @Test fun `shelved features have no regular command while core undo remains available`() {
+        var calls = 0
+        val hidden = listOf("ai", "replay", "forge", "reflog", "recovery")
+        val registry = CommandRegistry((hidden + "undo").map { AppCommand(it, it, true) { calls++ } })
+        hidden.forEach { assertFalse(registry.execute(it)) }
+        assertEquals(listOf("undo"), registry.commands.map { it.id })
+        assertEquals(1, registry.menu().size)
+        assertEquals(0, calls)
+        assertTrue(registry.execute("undo")); assertEquals(1, calls)
+    }
+
     @Test fun `editing retains undo and escape never aborts Git`() {
         assertNull(shortcutCommand(Key.Z, true, false, true))
         assertEquals("undo", shortcutCommand(Key.Z, true, false, false))

@@ -18,7 +18,13 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 
 internal data class AppCommand(val id: String, val title: String, val enabled: Boolean, val hint: String = "", val action: () -> Unit)
-internal class CommandRegistry(val commands: List<AppCommand>) {
+/** Temporarily shelved product entry points; implementations remain available internally. */
+internal object FeatureVisibility {
+    private val hidden = setOf("ai", "replay", "forge", "reflog", "recovery")
+    fun visible(id: String): Boolean = id !in hidden
+}
+internal class CommandRegistry(commands: List<AppCommand>) {
+    val commands = commands.filter { FeatureVisibility.visible(it.id) }
     fun execute(id: String): Boolean { val c = commands.firstOrNull { it.id == id } ?: return false; if (c.enabled) c.action(); return true }
     fun menu(): List<MenuEntry> = commands.map { c -> MenuItem(c.title, c.enabled, detail = c.hint.ifBlank { null }) { execute(c.id) } }
 }
