@@ -142,6 +142,7 @@ internal fun classifyFailure(output: String): GitFailure = when {
  * 所有方法都会阻塞，请在 IO 线程调用。
  */
 class GitCli(val workTree: File, private val isolated: Boolean = false) {
+    internal fun atPath(path: File): GitCli = GitCli(path, isolated)
 
     /** 推送当前分支；没有上游时设到 origin，以后直接 git push 也能用。 */
     fun push(): GitResult {

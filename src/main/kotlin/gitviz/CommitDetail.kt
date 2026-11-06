@@ -361,7 +361,12 @@ internal fun DiffBody(lines: List<DiffLine>, mode: DiffMode, modifier: Modifier,
         return
     }
     val modeChange = remember(lines) { modeChange(lines) }
+    val lfs = remember(sources) { listOfNotNull(sources?.old, sources?.new).mapNotNull { parseLfsPointer(it.text.toByteArray()) }.distinct() }
     Column(modifier) {
+        if (lfs.isNotEmpty()) {
+            Text(t("Git LFS pointer · ", "Git LFS 指针 · ") + lfs.joinToString(" → ") { "${it.size} bytes" } + t(" · Object content is not loaded", " · 未加载对象内容"), fontSize = TypeScale.Small, color = Palette.Muted, modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp))
+            HorizontalDivider()
+        }
         if (modeChange != null) {
             Text(modeChange.text, fontSize = TypeScale.Small, fontFamily = CodeFont, color = Palette.Modified,
                 modifier = Modifier.fillMaxWidth().background(Palette.Modified.copy(alpha = 0.08f)).padding(horizontal = 14.dp, vertical = 4.dp))
