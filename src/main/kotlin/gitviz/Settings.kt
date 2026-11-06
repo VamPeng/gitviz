@@ -33,6 +33,8 @@ internal fun countOf(n: Int, one: String, many: String = one + "s"): String = "$
 internal object Settings {
     private val prefs = Preferences.userRoot().node("gitviz")
 
+    val windowSize = WindowSizeStore(prefs)
+
     /** 测试里可以直接设，不写进偏好设置。 */
     var language by mutableStateOf(Language.entries.firstOrNull { it.name == prefs.get("language", "") } ?: Language.EN)
         internal set

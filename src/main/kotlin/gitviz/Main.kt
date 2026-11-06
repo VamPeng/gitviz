@@ -69,9 +69,11 @@ fun main(args: Array<String>) {
         "apple.awt.application.appearance",
         if (Palette.isDark) "NSAppearanceNameDarkAqua" else "NSAppearanceNameAqua",
     )
-    val size = DpSize(1360.dp, 860.dp)
+    val savedSize = initialWindowSize()
+    val size = DpSize(savedSize.width.dp, savedSize.height.dp)
     var requestClose: (() -> Unit)? = null
     val root: @Composable FrameWindowScope.(() -> Unit) -> Unit = { exit ->
+        RememberWindowSize(window)
         GitVizTheme {
             Surface(
                 Modifier.fillMaxSize().clip(RoundedCornerShape(if (isMac) 16.dp else 0.dp)),
