@@ -11,7 +11,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.*
 import java.io.File
 
-@Composable internal fun ComparisonView(directory: File, refs: List<RefTarget>, onOpenCommit: (String) -> Unit, modifier: Modifier) {
+@Composable internal fun ComparisonView(directory: File, refs: List<RefTarget>, onOpenCommit: (String) -> Unit, modifier: Modifier, onAi: ((CompareRequest) -> Unit)? = null) {
     val names = refs.mapNotNull { r -> when (r.label.kind) { RefKind.BRANCH -> "refs/heads/${r.label.name}"; RefKind.REMOTE -> "refs/remotes/${r.label.name}"; RefKind.TAG -> "refs/tags/${r.label.name}"; else -> null } }.distinct()
     var a by remember(directory) { mutableStateOf("HEAD") }
     var b by remember(directory) { mutableStateOf(names.firstOrNull { name -> refs.none { it.label.isCurrent && name == "refs/heads/${it.label.name}" } } ?: "HEAD") }
@@ -40,6 +40,10 @@ import java.io.File
                     else CompareRequest(session.b, session.a, session.request.rightLabel, session.request.leftLabel, request.generation + 1)
             }) { Text(t("Swap", "交换方向")) }
         }
+        if (onAi != null) TextButton(enabled = loaded?.isSuccess == true, onClick = {
+            val session = loaded!!.getOrThrow()
+            onAi(CompareRequest(session.a, session.b, session.request.leftLabel, session.request.rightLabel))
+        }) { Text(t("Summarize this snapshot with AI…", "AI 总结此快照…")) }
         choose?.let { left -> GitMenuPopup((listOf("HEAD") + names).map { name -> MenuItem(name) { if (left) a = name else b = name } }, { choose = null }) }
         val result = loaded
         when {

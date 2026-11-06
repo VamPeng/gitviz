@@ -16,6 +16,7 @@ dependencies {
     implementation(compose.material3)
     implementation("org.eclipse.jgit:org.eclipse.jgit:7.3.0.202506031305-r")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.10.2")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1")
     implementation("org.slf4j:slf4j-nop:2.0.17")
     implementation("net.java.dev.jna:jna:5.17.0")
 
@@ -38,7 +39,7 @@ compose.desktop {
         if (devDistribution) jvmArgs += "-Dgitviz.dev=true"
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
-            modules("java.instrument", "java.management", "java.security.jgss", "java.sql", "jdk.unsupported")
+            modules("java.instrument", "java.management", "java.net.http", "java.security.jgss", "java.sql", "jdk.unsupported")
             packageName = if (devDistribution) "GitViz Dev" else "GitViz"
             packageVersion = "1.0.0" // DMG 要求主版本号大于 0
             // 构建产物不参与 Spotlight 搜索，只展示 /Applications 中安装的两个版本。

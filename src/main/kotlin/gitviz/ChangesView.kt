@@ -46,6 +46,7 @@ internal fun ChangesView(
     /** 从别处（比如文件页）带过来、要选中的文件。选中后调用 onFocused。 */
     focus: String? = null,
     onFocused: () -> Unit = {},
+    onAi: (() -> Unit)? = null,
 ) {
     var selection by remember(cli) { mutableStateOf<Selection?>(null) }
     LaunchedEffect(focus) {
@@ -92,7 +93,7 @@ internal fun ChangesView(
                 }
             }
             HorizontalDivider()
-            CommitBox(cli, branch, staged.size, !busy, draft, onCommit = { message, amend, done ->
+            CommitBox(cli, branch, staged.size, !busy, draft, onAi, onCommit = { message, amend, done ->
                 apply(t("Committing", "正在提交"), t("Committed", "已提交"), historyChanged = true, op = { commit(message, amend) }, done = done)
             })
         }
@@ -185,7 +186,7 @@ private fun RowAction(label: String, color: Color, enabled: Boolean, onClick: ()
 }
 
 @Composable
-private fun CommitBox(cli: GitCli, branch: String?, stagedCount: Int, enabled: Boolean, draft: CommitDraft, onCommit: (String, Boolean, () -> Unit) -> Unit) {
+private fun CommitBox(cli: GitCli, branch: String?, stagedCount: Int, enabled: Boolean, draft: CommitDraft, onAi: (() -> Unit)?, onCommit: (String, Boolean, () -> Unit) -> Unit) {
     val scope = rememberCoroutineScope()
     var message by draft::message
     var amend by draft::amend
@@ -229,6 +230,7 @@ private fun CommitBox(cli: GitCli, branch: String?, stagedCount: Int, enabled: B
                 }
                 .background(Palette.Ground, shape).border(1.dp, Palette.Line, shape).padding(8.dp),
         )
+        if (onAi != null) TextButton(enabled = enabled && stagedCount > 0, onClick = onAi) { Text(t("Generate draft with AI…", "AI 生成草稿…")) }
         val target = branch ?: t("HEAD", "当前提交")
         Text(
             if (amend) t("Amend last commit", "修改上一次提交") else t("Commit to $target · ${countOf(stagedCount, "file")}", "提交到 $target · $stagedCount 个文件"),
