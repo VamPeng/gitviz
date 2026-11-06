@@ -65,6 +65,8 @@ data class NetStatus(
     val output: String = "",
     val id: Long = statusIds.incrementAndGet(),
     val recoveryId: String? = null,
+    val lessons: List<GitLesson> = emptyList(),
+    val needsRecovery: Boolean = false,
 )
 
 internal fun describe(op: NetOp, result: GitResult): NetStatus {
@@ -81,7 +83,7 @@ internal fun describe(op: NetOp, result: GitResult): NetStatus {
         GitFailure.UNKNOWN -> NetStatus(t("Check repository state", "请核对仓库状态"), result.output, NetState.WARNING)
         GitFailure.NOT_MERGED, GitFailure.OTHER ->
             NetStatus(failedTitle(op.running), errorSummary(result.output), NetState.FAILED, op, t("Retry", "重试"))
-    }).copy(output = result.output, recoveryId = result.recoveryId)
+    }).copy(output = result.output, recoveryId = result.recoveryId, lessons = result.lessons, needsRecovery = result.needsRecovery)
 }
 
 /** 分支、合并这些本地操作的结果。running 形如「正在合并」。 */
@@ -96,15 +98,16 @@ internal fun describeAction(running: String, done: String, result: GitResult): N
         NetState.WARNING,
     )
     else -> NetStatus(failedTitle(running), errorSummary(result.output), NetState.FAILED)
-}).copy(output = result.output, recoveryId = result.recoveryId)
+}).copy(output = result.output, recoveryId = result.recoveryId, lessons = result.lessons, needsRecovery = result.needsRecovery)
 
 /** 成功提示可自动收起；悬停或阅读详情时保留，警告和错误始终等待用户处理。 */
 @Composable
-internal fun NetBanner(status: NetStatus, onAction: (NetOp) -> Unit, onDismiss: () -> Unit, onUndo: (() -> Unit)? = null) {
+internal fun NetBanner(status: NetStatus, onAction: (NetOp) -> Unit, onDismiss: () -> Unit, onUndo: (() -> Unit)? = null, onRecovery: (() -> Unit)? = null) {
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
     var expanded by remember(status) { mutableStateOf(false) }
     var copied by remember(status) { mutableStateOf(false) }
+    var lessonOpen by remember(status.id) { mutableStateOf(Settings.teachingMode && status.lessons.isNotEmpty()) }
     val clipboard = LocalClipboardManager.current
     val running = status.state == NetState.RUNNING
     val color = when (status.state) {
@@ -113,8 +116,8 @@ internal fun NetBanner(status: NetStatus, onAction: (NetOp) -> Unit, onDismiss: 
         NetState.WARNING -> Palette.Modified
         NetState.FAILED -> Palette.Removed
     }
-    LaunchedEffect(status, hovered, expanded) {
-        if (status.state == NetState.DONE && !hovered && !expanded) {
+    LaunchedEffect(status, hovered, expanded, lessonOpen) {
+        if (status.state == NetState.DONE && !hovered && !expanded && !lessonOpen) {
             delay(5000)
             onDismiss()
         }
@@ -138,6 +141,7 @@ internal fun NetBanner(status: NetStatus, onAction: (NetOp) -> Unit, onDismiss: 
                     maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
             if (onUndo != null) BannerButton(t("Undo local change", "撤销本地改动"), onUndo)
+            if (status.needsRecovery && !running && onRecovery != null) BannerButton(t("Resolve recovery issue…", "处理恢复问题…"), onRecovery)
             status.next?.let { op -> BannerButton(status.nextLabel) { onAction(op) } }
             if (!running) BannerButton(t("Close", "关闭"), onDismiss)
         }
@@ -156,6 +160,21 @@ internal fun NetBanner(status: NetStatus, onAction: (NetOp) -> Unit, onDismiss: 
                     modifier = Modifier.fillMaxWidth().heightIn(max = 180.dp)
                         .background(Palette.Field, RoundedCornerShape(5.dp))
                         .verticalScroll(rememberScrollState()).padding(10.dp))
+            }
+        }
+        if (!running && Settings.teachingMode && status.lessons.isNotEmpty()) {
+            Row(Modifier.padding(start = 26.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                BannerButton(if (lessonOpen) t("Hide Git commands", "收起 Git 命令") else t("Learn Git commands", "查看 Git 命令")) { lessonOpen = !lessonOpen }
+                BannerButton(t("Copy commands and notes", "复制命令和说明")) {
+                    clipboard.setText(AnnotatedString(status.lessons.joinToString("\n\n") { lesson -> listOfNotNull(lesson.command, "# " + lesson.explanation).joinToString("\n") }))
+                }
+            }
+            if (lessonOpen) Column(Modifier.fillMaxWidth().heightIn(max = 210.dp).verticalScroll(rememberScrollState()).padding(start = 26.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(t("Commands requested by this operation. Credentials are redacted; a failed command may not have completed.", "本次操作请求执行的命令。凭证已隐藏；失败的命令可能未执行完成。"), fontSize = TypeScale.Small, color = Palette.Muted)
+                status.lessons.forEach { lesson -> SelectionContainer { Column {
+                    lesson.command?.let { Text(it, fontFamily = CodeFont, fontSize = TypeScale.Small, color = Palette.Ink) }
+                    Text(lesson.explanation, fontSize = TypeScale.Small, color = Palette.Muted)
+                } } }
             }
         }
     }

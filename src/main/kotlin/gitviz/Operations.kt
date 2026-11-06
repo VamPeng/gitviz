@@ -53,7 +53,7 @@ internal class OperationCoordinator(private val cli: GitCli) {
                 try {
                     val result = attemptGitOperation(action)
                     try { val id = store.finish(record, result); result.copy(recoveryId = id.takeIf { result.ok }) }
-                    catch (e: Exception) { GitResult(GitFailure.UNKNOWN, e.message.orEmpty()) }
+                    catch (e: Exception) { GitResult(GitFailure.UNKNOWN, e.message.orEmpty(), needsRecovery = e is RecoveryRequiredException) }
                 } finally { nesting.get().remove(key); records.get().remove(key) }
             }
         } }

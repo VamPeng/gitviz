@@ -4,6 +4,21 @@ import java.nio.file.Files
 import kotlin.test.*
 
 class RecoveryStoreTest {
+    @Test fun `review-required undo exposes recovery action and ordinary errors do not`(): Unit = RepositoryFixture().use { r ->
+        r.commit()
+        val result = r.cli.coordinator.execute(OperationRequest(OperationKind.FILE, listOf("fixture"), network = true)) {
+            r.write("a", "changed\n"); GitResult(null, "")
+        }
+        assertTrue(result.ok, result.output)
+        val undo = r.cli.undo(result.recoveryId)
+        assertFalse(undo.ok); assertTrue(undo.needsRecovery)
+        assertTrue(describeAction("Undoing", "Undone", undo).needsRecovery)
+        assertTrue(describe(NetOp.FETCH, undo).needsRecovery)
+        assertFalse(describeAction("Running", "Done", GitResult(GitFailure.OTHER, "Recovery is just text here")).needsRecovery)
+        assertFalse(describe(NetOp.FETCH, GitResult(GitFailure.AUTH, "auth failed")).needsRecovery)
+        assertEquals("changed\n", r.root.resolve("a").readText())
+    }
+
     @Test fun `quota counts compressed objects rather than raw blob size`() = RepositoryFixture().use { r ->
         r.write("large", "x".repeat(3 * 1024 * 1024)); r.git("add", "large"); r.git("commit", "-qm", "large compressible blob")
         r.cli.recovery.quotaBytes = 1024 * 1024
@@ -59,7 +74,8 @@ class RecoveryStoreTest {
     @Test fun `external edits prevent ordinary undo`() = RepositoryFixture().use { r ->
         r.commit(); r.write("a", "two\n"); assertTrue(r.cli.stage(r.cli.status().first()).ok)
         r.write("a", "external\n")
-        assertFalse(r.cli.undo().ok)
+        val blocked = r.cli.undo()
+        assertFalse(blocked.ok); assertTrue(blocked.needsRecovery)
         assertEquals("external\n", r.root.resolve("a").readText())
     }
     @Test fun `deleted commit can be recovered after source gc`() = RepositoryFixture().use { r ->
@@ -88,7 +104,8 @@ class RecoveryStoreTest {
     @Test fun `interrupted record blocks new writes until inspected`() = RepositoryFixture().use { r ->
         r.commit()
         val record = r.cli.recovery.begin(OperationRequest.command(listOf("commit", "-m", "pending")))
-        assertFalse(r.cli.createBranch("other", "HEAD").ok)
+        val blocked = r.cli.createBranch("other", "HEAD")
+        assertFalse(blocked.ok); assertTrue(blocked.needsRecovery)
         assertTrue(r.cli.inspectPoint(record.id).ok)
         assertTrue(r.cli.createBranch("other", "HEAD").ok)
     }
@@ -138,7 +155,8 @@ class RecoveryStoreTest {
     @Test fun `quota refuses writes instead of silently dropping recovery`() = RepositoryFixture().use { r ->
         r.commit(); r.cli.recovery.quotaBytes = 1024 * 1024
         val data = ByteArray(2 * 1024 * 1024); java.util.Random(42).nextBytes(data); r.root.resolve("large").writeBytes(data)
-        assertFalse(r.cli.stage(r.cli.status().first { it.path == "large" }).ok)
+        val blocked = r.cli.stage(r.cli.status().first { it.path == "large" })
+        assertFalse(blocked.ok); assertTrue(blocked.needsRecovery)
         assertEquals("", r.git("diff", "--cached", "--name-only"))
         assertContentEquals(data, r.root.resolve("large").readBytes())
     }

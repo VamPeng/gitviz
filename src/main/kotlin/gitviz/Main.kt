@@ -333,7 +333,7 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean, onExit: 
             scope.launch {
                 net = NetStatus(t("Cloning", "正在克隆"), name, NetState.RUNNING)
                 try {
-                    val result = withContext(Dispatchers.IO) { attemptGitOperation { GitCli(parent).clone(url, name) } }
+                    val result = withContext(Dispatchers.IO) { Teaching.capture(Settings.teachingMode) { GitCli(parent).clone(url, name) } }
                     net = describeAction(t("Cloning", "正在克隆"), t("Cloned $name", "已克隆 $name"), result)
                     operationBusy = false
                     if (result.ok) open(File(parent, name))
@@ -442,7 +442,7 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean, onExit: 
         scope.launch {
             var succeeded = false
             try {
-                val result = withContext(Dispatchers.IO + NonCancellable) { git.coordinator.execute(OperationRequest(OperationKind.OTHER)) { git.op() } }
+                val result = withContext(Dispatchers.IO + NonCancellable) { Teaching.capture(Settings.teachingMode) { git.coordinator.execute(OperationRequest(OperationKind.OTHER)) { git.op() } } }
                 net = finish(result)
                 succeeded = result.ok
                 reloadWorking(force = true)
@@ -747,7 +747,7 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean, onExit: 
             }
             HorizontalDivider()
             net?.let {
-                NetBanner(it, onAction = ::runNet, onDismiss = { if (net === it) net = null }, onUndo = if (cli != null && !operationBusy && !loading && it.state == NetState.DONE && it.recoveryId != null) ({ actions.run(t("Undoing", "正在撤销"), t("Undone", "已撤销")) { undo(it.recoveryId) } }) else null)
+                NetBanner(it, onAction = ::runNet, onDismiss = { if (net === it) net = null }, onUndo = if (cli != null && !operationBusy && !loading && it.state == NetState.DONE && it.recoveryId != null) ({ actions.run(t("Undoing", "正在撤销"), t("Undone", "已撤销")) { undo(it.recoveryId) } }) else null, onRecovery = if (cli != null && !operationBusy && !loading) ({ view = MainView.RECOVERY }) else null)
                 HorizontalDivider()
             }
             if (s == null) {

@@ -21,19 +21,19 @@ internal fun GitCli.rebase(target: String): GitResult = coordinator.execute(Oper
     check(currentOperation() == null) { t("Finish the current operation first", "请先完成当前操作") }
     check(raw(listOf("symbolic-ref", "-q", "HEAD")).exitCode == 0) { t("Choose a local branch first", "请先切换到本地分支") }
     check(status().isEmpty()) { t("Commit or stash local changes before rebasing", "请先提交或储藏本地改动，再变基") }
-    rebaseResult(raw(listOf("-c", "core.editor=true", "rebase") + rebaseFlags + target))
+    rebaseResult(raw(listOf("-c", "core.editor=true", "rebase") + rebaseFlags + target, teach = true))
 }
 
 internal fun GitCli.rebaseStep(step: String): GitResult = coordinator.execute(OperationRequest(OperationKind.REBASE, listOf("rebase", step))) {
     check(currentOperation() == GitOperation.REBASE) { "No rebase in progress" }
     check(step in setOf("--continue", "--skip", "--abort"))
-    rebaseResult(raw(listOf("-c", "core.editor=true", "rebase", step)))
+    rebaseResult(raw(listOf("-c", "core.editor=true", "rebase", step), teach = true))
 }
 
 internal fun GitCli.keepEmptyRebaseCommit(): GitResult = coordinator.execute(OperationRequest(OperationKind.REBASE, listOf("rebase", "keep-empty"))) {
     val progress = rebaseProgress()
     check(progress?.canKeepEmpty == true) { t("The paused commit is no longer empty. Refresh first.", "暂停的提交已不为空，请先刷新。") }
-    val committed = raw(listOf("-c", "core.editor=true", "commit", "--allow-empty", "--no-edit", "-C", checkNotNull(progress.commit))).result()
+    val committed = raw(listOf("-c", "core.editor=true", "commit", "--allow-empty", "--no-edit", "-C", checkNotNull(progress.commit)), teach = true).result()
     if (!committed.ok) committed else rebaseStep("--continue")
 }
 

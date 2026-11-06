@@ -157,8 +157,8 @@ internal fun GitCli.applySelection(document: PatchDocument, selected: Set<Int>, 
             val environment = mapOf("GIT_INDEX_FILE" to temp.absolutePath)
             if (index.isFile) index.copyTo(temp, overwrite = true) else { temp.delete(); raw(listOf("read-tree", "--empty"), environment = environment).requireSuccess() }
             raw(listOf("update-index", "--no-split-index"), environment = environment).requireSuccess()
-            raw(listOf("apply", "--cached", "--check", "--whitespace=nowarn", "-"), patch, environment).requireSuccess()
-            raw(listOf("apply", "--cached", "--whitespace=nowarn", "-"), patch, environment).requireSuccess()
+            raw(listOf("apply", "--cached", "--check", "--whitespace=nowarn", "-"), patch, environment, teach = true).requireSuccess()
+            raw(listOf("apply", "--cached", "--whitespace=nowarn", "-"), patch, environment, teach = true).requireSuccess()
             beforeInstall()
             RecoveryIndexLock(ownDirectory, checkNotNull(coordinator.recordId)).use { owned ->
                 check(document.indexStamp == indexStamp()) { t("Index changed concurrently. Reload and select again.", "暂存区被其他进程修改，请重新选择。") }

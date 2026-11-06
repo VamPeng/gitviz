@@ -21,7 +21,7 @@ enum class ResetMode(val flag: String) {
 }
 
 /** 一次网络操作的结果。failure 为 null 表示成功，output 是 git 的原始输出。 */
-data class GitResult(val failure: GitFailure?, val output: String, val recoveryId: String? = null) {
+data class GitResult(val failure: GitFailure?, val output: String, val recoveryId: String? = null, val lessons: List<GitLesson> = emptyList(), val needsRecovery: Boolean = false) {
     val ok: Boolean get() = failure == null
 }
 
@@ -31,7 +31,7 @@ internal fun attemptGitOperation(op: () -> GitResult): GitResult = try {
 } catch (e: java.util.concurrent.CancellationException) {
     throw e
 } catch (e: Exception) {
-    GitResult(GitFailure.OTHER, e.message?.takeIf { it.isNotBlank() } ?: e.toString())
+    GitResult(GitFailure.OTHER, e.message?.takeIf { it.isNotBlank() } ?: e.toString(), needsRecovery = e is RecoveryRequiredException)
 }
 
 internal typealias OperationRunner = (String, String, GitCli.() -> GitResult, (Boolean) -> Unit) -> Unit
@@ -341,7 +341,7 @@ class GitCli(val workTree: File, private val isolated: Boolean = false) {
                 val head = parent.before.head
                 val args = if (head.startsWith("ref: refs/heads/")) listOf("switch", "--no-overwrite-ignore", head.removePrefix("ref: refs/heads/"))
                     else listOf("switch", "--no-overwrite-ignore", "--detach", head)
-                val switched = raw(args).result()
+                val switched = raw(args, teach = true).result()
                 if (switched.ok) result else switched.copy(output = t("Operation aborted; local changes prevent returning to the original branch. Review Changes or Recovery.\n", "操作已中止；本地改动阻止返回原分支，请查看本地改动或恢复记录。\n") + switched.output)
             } else result
         }.copy(recoveryId = null)
@@ -368,6 +368,7 @@ class GitCli(val workTree: File, private val isolated: Boolean = false) {
 
     /** 写入解决后的内容，并标记这个文件已解决。 */
     fun resolveFile(path: String, content: String, expectedSignature: String? = null): GitResult = coordinator.execute(OperationRequest(OperationKind.FILE, paths = setOf(path))) {
+        Teaching.note("GitViz saves the edited conflict content, then stages the file.", "GitViz 保存编辑后的冲突内容，再暂存文件。")
         if (expectedSignature != null) check(conflictSources(path).let { it.signature == expectedSignature && it.stages.isNotEmpty() }) { t("Conflict inputs changed. Reload before saving.", "冲突输入已改变，请重新加载后保存。") }
         val destination = safeWorkingPath(path)
         check(!java.nio.file.Files.isSymbolicLink(destination)) { "Cannot text-edit a symbolic link" }
@@ -383,6 +384,7 @@ class GitCli(val workTree: File, private val isolated: Boolean = false) {
     }
 
     fun ignore(path: String, directory: Boolean): GitResult = coordinator.execute(OperationRequest(OperationKind.FILE, paths = setOf(".gitignore"))) {
+        Teaching.note("GitViz appends an escaped rule to .gitignore; no Git command performs this file edit.", "GitViz 向 .gitignore 追加转义后的规则；这个文件编辑不对应单条 Git 命令。")
         appendToGitignore(workTree, path, directory)
         GitResult(null, "")
     }
@@ -422,10 +424,14 @@ class GitCli(val workTree: File, private val isolated: Boolean = false) {
     }
     internal val recovery by lazy { RecoveryStore(this) }
     fun undo(id: String? = null): GitResult = coordinator.execute(OperationRequest(OperationKind.RESTORE)) {
+        Teaching.note("GitViz restores saved references, index and files after checking for external changes; this is not git reset.", "GitViz 核对外部变化后恢复保存的引用、暂存区和文件；这不等同于 git reset。")
         val record = (if (id == null) recovery.latest() else recovery.records().firstOrNull { it.id == id }) ?: return@execute GitResult(GitFailure.OTHER, t("No operation to undo", "没有可撤销的操作"))
         recovery.restore(record.id)
     }
-    internal fun restorePoint(id: String, fingerprint: String? = null): GitResult = coordinator.execute(OperationRequest(OperationKind.RESTORE)) { recovery.restore(id, historical = true, expectedFingerprint = fingerprint) }
+    internal fun restorePoint(id: String, fingerprint: String? = null): GitResult = coordinator.execute(OperationRequest(OperationKind.RESTORE)) {
+        Teaching.note("GitViz restores the selected local snapshot with reference and file checks; there is no single equivalent Git command.", "GitViz 校验引用与文件后恢复所选本地快照；没有一条等价的 Git 命令。")
+        recovery.restore(id, historical = true, expectedFingerprint = fingerprint)
+    }
     internal fun configureRecovery(days: Int, bytes: Long, clear: Boolean = false): GitResult = coordinator.execute(OperationRequest(OperationKind.RESTORE)) {
         recovery.retentionDays = days; recovery.quotaBytes = bytes; recovery.cleanup(clear)
         GitResult(null, "")
@@ -434,15 +440,17 @@ class GitCli(val workTree: File, private val isolated: Boolean = false) {
 
     internal val coordinator by lazy { OperationCoordinator(this) }
     internal fun execute(request: OperationRequest): GitResult = coordinator.execute(request) {
-        raw(request.arguments, environment = if (request.network) Askpass.environment() else emptyMap(), timeout = if (request.network) NETWORK_TIMEOUT_SECONDS else TIMEOUT_SECONDS).result()
+        raw(request.arguments, environment = if (request.network) Askpass.environment() else emptyMap(), timeout = if (request.network) NETWORK_TIMEOUT_SECONDS else TIMEOUT_SECONDS, teach = true).result()
     }
     private fun run(vararg args: String): GitResult = execute(OperationRequest.command(args.toList()))
 
     /** 会连接远程的命令：可能要等用户输入，超时更长，也要接上系统的密码对话框。 */
     private fun network(vararg args: String): GitResult = execute(OperationRequest.command(args.toList(), network = true))
 
-    internal fun raw(args: List<String>, input: ByteArray? = null, environment: Map<String, String> = emptyMap(), timeout: Long = TIMEOUT_SECONDS, preparedCheck: (() -> Unit)? = null): GitExecution =
-        GitProcess.execute(workTree, if (isolated) listOf("-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", "-c", "protocol.allow=never", "-c", "core.fsmonitor=false") + args else args, input, environment, timeout, isolated, preparedCheck)
+    internal fun raw(args: List<String>, input: ByteArray? = null, environment: Map<String, String> = emptyMap(), timeout: Long = TIMEOUT_SECONDS, preparedCheck: (() -> Unit)? = null, teach: Boolean = false): GitExecution {
+        if (teach) Teaching.command(args, input != null, "GIT_INDEX_FILE" in environment)
+        return GitProcess.execute(workTree, if (isolated) listOf("-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", "-c", "protocol.allow=never", "-c", "core.fsmonitor=false") + args else args, input, environment, timeout, isolated, preparedCheck)
+    }
     internal fun read(vararg args: String): String = raw(args.toList()).requireSuccess().toString(Charsets.UTF_8)
     internal fun bytes(vararg args: String): ByteArray = raw(args.toList()).requireSuccess()
     internal val ownDirectory: File get() = gitDirs.own.canonicalFile

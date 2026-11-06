@@ -43,11 +43,11 @@ internal fun GitCli.preparePull(settings: PullSettings): PreparedPull {
         check(sourceHead == headIdentity()) { "Fetch completed, but current branch changed; integration was not started" }
         val oid = read("rev-parse", "--verify", "--end-of-options", "$tracking^{commit}").trim()
         // Configuration is part of this recorded fetch step, restored by keys during local recovery.
-        raw(listOf("config", "--local", "gitviz.pullstrategy", settings.strategy.name)).requireSuccess()
+        raw(listOf("config", "--local", "gitviz.pullstrategy", settings.strategy.name), teach = true).requireSuccess()
         if (settings.setUpstream) {
-            if (settings.remote != "." && mapped == null) raw(listOf("config", "--local", "--add", "remote.${settings.remote}.fetch", "+$source:$tracking")).requireSuccess()
-            raw(listOf("config", "--local", "branch.$current.remote", settings.remote)).requireSuccess()
-            raw(listOf("config", "--local", "branch.$current.merge", "refs/heads/${settings.branch}")).requireSuccess()
+            if (settings.remote != "." && mapped == null) raw(listOf("config", "--local", "--add", "remote.${settings.remote}.fetch", "+$source:$tracking"), teach = true).requireSuccess()
+            raw(listOf("config", "--local", "branch.$current.remote", settings.remote), teach = true).requireSuccess()
+            raw(listOf("config", "--local", "branch.$current.merge", "refs/heads/${settings.branch}"), teach = true).requireSuccess()
         }
         intent = OperationIntent(if (settings.strategy == PullStrategy.REBASE) PreviewKind.REBASE else PreviewKind.MERGE, oid, ffOnly = settings.strategy == PullStrategy.FF_ONLY, expectedHead = sourceHead)
         fetched.copy(output = fetched.output + "\n" + t("Fetch completed. Integration has not run; review its preview next.", "获取已完成，尚未集成；请查看下一步预览。"))

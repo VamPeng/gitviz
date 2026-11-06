@@ -1,6 +1,8 @@
 package gitviz
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -34,6 +36,14 @@ internal object Settings {
     private val prefs = Preferences.userRoot().node("gitviz")
 
     val windowSize = WindowSizeStore(prefs)
+
+    var teachingMode by mutableStateOf(prefs.getBoolean("teachingMode", false))
+        private set
+
+    fun updateTeachingMode(value: Boolean) {
+        teachingMode = value
+        prefs.putBoolean("teachingMode", value)
+    }
 
     /** 测试里可以直接设，不写进偏好设置。 */
     var language by mutableStateOf(Language.entries.firstOrNull { it.name == prefs.get("language", "") } ?: Language.EN)
@@ -82,7 +92,7 @@ internal object Settings {
 
 @Composable
 internal fun SettingsView(cli: GitCli?, modifier: Modifier) {
-    Column(modifier.padding(horizontal = 32.dp, vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
+    Column(modifier.verticalScroll(rememberScrollState()).padding(horizontal = 32.dp, vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
         Text(t("Settings", "设置"), fontSize = TypeScale.Title, fontWeight = FontWeight.SemiBold)
         Section(t("Appearance", "外观")) {
             OptionRow(t("Language", "语言"), "") {
@@ -96,6 +106,11 @@ internal fun SettingsView(cli: GitCli?, modifier: Modifier) {
             }
             OptionRow(t("Default diff view", "默认 diff 视图"), t("Used when you open a file", "打开文件时使用的视图")) {
                 Segmented(listOf(DiffMode.Unified to t("Unified", "统一"), DiffMode.Split to t("Split", "并排")), Settings.defaultDiffMode, onSelect = Settings::updateDiffMode)
+            }
+        }
+        Section(t("Learning", "教学")) {
+            OptionRow(t("Show Git commands", "显示 Git 命令"), t("Explain commands in operation feedback", "在操作反馈中查看和复制命令及说明")) {
+                Segmented(listOf(false to t("Off", "关闭"), true to t("On", "开启")), Settings.teachingMode, onSelect = Settings::updateTeachingMode)
             }
         }
         if (cli != null) {

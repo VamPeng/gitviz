@@ -176,9 +176,9 @@ internal fun GitCli.executePlan(plan: OperationPlan): GitResult = coordinator.ex
     check(plan.repository == workTree.canonicalPath && plan.fingerprint == previewFingerprint(plan.intent)) { t("Preview expired. Preview the operation again.", "预览已过期，请重新预览操作。") }
     coordinator.execute(plan.intent.request()) {
         check(plan.fingerprint == previewFingerprint(plan.intent)) { "Preview expired while saving recovery point" }
-        val switched = plan.intent.switchBranch?.let { raw(listOf("switch", it)).result() }
+        val switched = plan.intent.switchBranch?.let { raw(listOf("switch", it), teach = true).result() }
         if (switched != null && !switched.ok) switched else {
-            val result = raw(plan.intent.command(plan.parentCount))
+            val result = raw(plan.intent.command(plan.parentCount), teach = true)
             if (plan.intent.kind == PreviewKind.REBASE) rebaseResult(result) else result.result()
         }
     }

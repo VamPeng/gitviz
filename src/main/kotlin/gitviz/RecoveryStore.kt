@@ -14,6 +14,12 @@ import java.util.zip.GZIPOutputStream
 
 internal enum class RecordState { PREPARED, RUNNING, CONFLICTED, COMPLETED, RESTORING, NEEDS_RECOVERY, UNDONE, CHILD }
 internal data class SavedPath(val kind: String, val content: String, val permissions: String)
+internal class RecoveryRequiredException(message: String, cause: Throwable? = null) : IllegalStateException(message, cause)
+
+private inline fun recoveryCheck(value: Boolean, message: () -> String) {
+    if (!value) throw RecoveryRequiredException(message())
+}
+
 internal data class RecoverySnapshot(
     val head: String, val refs: Map<String, String>, val config: Map<String, List<String>>,
     val files: Map<String, SavedPath>, val index: Map<String, String>, val stash: List<Pair<String, String>>,
@@ -54,7 +60,7 @@ internal class RecoveryStore(private val cli: GitCli) {
 
     fun begin(request: OperationRequest): OperationRecord {
         initialize()
-        pending()?.let { error(t("An interrupted operation needs inspection in Recovery: ${it.worktree}", "有未完成的操作，请先到该工作区的恢复记录中核对：${it.worktree}")) }
+        pending()?.let { throw RecoveryRequiredException(t("An interrupted operation needs inspection in Recovery: ${it.worktree}", "有未完成的操作，请先到该工作区的恢复记录中核对：${it.worktree}")) }
         cleanup()
         val before = capture(targetPaths(request), store = true)
         val record = OperationRecord(UUID.randomUUID().toString(), System.currentTimeMillis(), identity,
@@ -95,7 +101,7 @@ internal class RecoveryStore(private val cli: GitCli) {
             return undoId
         } catch (e: Exception) {
             save(record.copy(state = RecordState.NEEDS_RECOVERY, detail = "${result.output}\n${e.message}"))
-            throw IllegalStateException(t("Operation finished but recovery recording needs attention: ${e.message}", "操作已执行，但恢复记录需要处理：${e.message}"), e)
+            throw RecoveryRequiredException(t("Operation finished but recovery recording needs attention: ${e.message}", "操作已执行，但恢复记录需要处理：${e.message}"), e)
         }
     }
 
@@ -123,9 +129,9 @@ internal class RecoveryStore(private val cli: GitCli) {
         val current = capture(target.files.keys + entry.after?.files.orEmpty().keys, true)
         if (expectedFingerprint != null) check(fingerprint(current) == expectedFingerprint) { t("Recovery preview expired. Review the current state again.", "恢复预览已过期，请重新核对当前状态。") }
         if (!historical) {
-            check(!entry.requiresReview) { t("This operation involved a network transfer, pause or interruption. Review its recovery impact in Recovery first.", "此操作涉及网络、暂停或中断，请先到恢复记录查看恢复影响。") }
-            val expected = checkNotNull(entry.after) { "No final state; use explicit recovery" }
-            check(sameState(current, expected)) { t("Repository changed since this operation. Use explicit recovery to review overwriting it.", "此操作后仓库已改变，请使用显式恢复并核对覆盖范围。") }
+            recoveryCheck(!entry.requiresReview) { t("This operation involved a network transfer, pause or interruption. Review its recovery impact in Recovery first.", "此操作涉及网络、暂停或中断，请先到恢复记录查看恢复影响。") }
+            val expected = entry.after ?: throw RecoveryRequiredException(t("No final state; review recovery first", "缺少最终状态，请先核对恢复记录"))
+            recoveryCheck(sameState(current, expected)) { t("Repository changed since this operation. Use explicit recovery to review overwriting it.", "此操作后仓库已改变，请使用显式恢复并核对覆盖范围。") }
         }
         validateContent(target)
         val recovery = OperationRecord(UUID.randomUUID().toString(), System.currentTimeMillis(), identity, "Restore ${entry.label}", RecordState.RESTORING, current, target)
@@ -154,7 +160,7 @@ internal class RecoveryStore(private val cli: GitCli) {
             GitResult(null, t("Local state restored", "本地状态已恢复"))
         } catch (e: Exception) {
             save(recovery.copy(state = RecordState.RESTORING, detail = e.message.orEmpty()))
-            GitResult(GitFailure.UNKNOWN, t("Restore is incomplete. Recovery data was kept: ${e.message}", "恢复未完成，恢复数据已保留：${e.message}"))
+            GitResult(GitFailure.UNKNOWN, t("Restore is incomplete. Recovery data was kept: ${e.message}", "恢复未完成，恢复数据已保留：${e.message}"), needsRecovery = true)
         }
     }
 
@@ -277,8 +283,8 @@ internal class RecoveryStore(private val cli: GitCli) {
         try {
             val limited = object : FilterOutputStream(temp.outputStream()) {
                 var written = 0L
-                override fun write(b: Int) { check(++written <= remaining) { "Recovery quota exceeded" }; out.write(b) }
-                override fun write(b: ByteArray, off: Int, len: Int) { written += len; check(written <= remaining) { "Recovery quota exceeded" }; out.write(b, off, len) }
+                override fun write(b: Int) { recoveryCheck(++written <= remaining) { "Recovery quota exceeded" }; out.write(b) }
+                override fun write(b: ByteArray, off: Int, len: Int) { written += len; recoveryCheck(written <= remaining) { "Recovery quota exceeded" }; out.write(b, off, len) }
             }
             val actual = GZIPOutputStream(limited).use { digest(file.inputStream(), it) }
             check(actual == id) { "File changed while saving: ${file.name}" }
@@ -324,8 +330,8 @@ internal class RecoveryStore(private val cli: GitCli) {
                             FileOutputStream(temp).use { output ->
                                 val limited = object : FilterOutputStream(output) {
                                     var written = 0L
-                                    override fun write(b: Int) { check(++written <= budget) { "Recovery quota exceeded while copying Git objects" }; out.write(b) }
-                                    override fun write(b: ByteArray, off: Int, len: Int) { written += len; check(written <= budget) { "Recovery quota exceeded while copying Git objects" }; out.write(b, off, len) }
+                                    override fun write(b: Int) { recoveryCheck(++written <= budget) { "Recovery quota exceeded while copying Git objects" }; out.write(b) }
+                                    override fun write(b: ByteArray, off: Int, len: Int) { written += len; recoveryCheck(written <= budget) { "Recovery quota exceeded while copying Git objects" }; out.write(b, off, len) }
                                 }
                                 val digest = MessageDigest.getInstance("SHA-1")
                                 java.util.zip.DeflaterOutputStream(limited).use { compressed ->
@@ -462,7 +468,7 @@ internal class RecoveryStore(private val cli: GitCli) {
             folder.listFiles().orEmpty().filter { folder.name + it.name !in live }.forEach { it.delete() }
         }
     }
-    private fun requireCapacity() { check(size() <= quotaBytes) { t("Recovery storage is full. Increase its quota or clear old points in Recovery.", "恢复存储空间不足，请在恢复页调整配额或清理旧恢复点。") } }
+    private fun requireCapacity() { recoveryCheck(size() <= quotaBytes) { t("Recovery storage is full. Increase its quota or clear old points in Recovery.", "恢复存储空间不足，请在恢复页调整配额或清理旧恢复点。") } }
 
     private fun atomic(file: File, write: (OutputStream) -> Unit) {
         file.parentFile.mkdirs()
@@ -472,8 +478,8 @@ internal class RecoveryStore(private val cli: GitCli) {
             FileOutputStream(temp).use { output ->
                 val limited = object : FilterOutputStream(output) {
                     var written = 0L
-                    override fun write(b: Int) { check(++written <= budget) { "Recovery quota exceeded" }; out.write(b) }
-                    override fun write(b: ByteArray, off: Int, len: Int) { written += len; check(written <= budget) { "Recovery quota exceeded" }; out.write(b, off, len) }
+                    override fun write(b: Int) { recoveryCheck(++written <= budget) { "Recovery quota exceeded" }; out.write(b) }
+                    override fun write(b: ByteArray, off: Int, len: Int) { written += len; recoveryCheck(written <= budget) { "Recovery quota exceeded" }; out.write(b, off, len) }
                 }
                 write(limited); limited.flush(); output.fd.sync()
             }
