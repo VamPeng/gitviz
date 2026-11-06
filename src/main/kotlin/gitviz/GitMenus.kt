@@ -68,6 +68,7 @@ internal class GitActions(
     val run: (running: String, done: String, op: GitCli.() -> GitResult) -> Unit,
     val copy: (String) -> Unit,
     val preview: (OperationIntent) -> Unit = {},
+    val editRebase: (String) -> Unit = {},
 )
 
 internal fun commitMenu(c: CommitInfo, isHead: Boolean, branch: String?, a: GitActions): List<MenuEntry> {
@@ -91,6 +92,9 @@ internal fun commitMenu(c: CommitInfo, isHead: Boolean, branch: String?, a: GitA
         },
         MenuItem(t("Rebase onto this commit…", "变基到这个提交…"), enabled = !isHead && branch != null) {
             a.preview(OperationIntent(PreviewKind.REBASE, c.id))
+        },
+        MenuItem(t("Edit commits after this…", "交互式编辑此后的提交…"), enabled = !isHead && branch != null) {
+            a.editRebase(c.id)
         },
         MenuItem(t("Cherry-pick onto $target…", "Cherry-pick 到 $target…"), enabled = !isHead) {
             a.preview(OperationIntent(PreviewKind.CHERRY_PICK, c.id))

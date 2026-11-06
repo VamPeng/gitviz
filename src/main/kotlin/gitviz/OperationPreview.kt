@@ -10,10 +10,11 @@ import java.security.MessageDigest
 
 internal enum class PreviewKind { MERGE, REBASE, CHERRY_PICK, RESET }
 internal data class OperationIntent(val kind: PreviewKind, val target: String, val mode: ResetMode = ResetMode.MIXED,
-    val mainline: Int = 1, val switchBranch: String? = null, val ffOnly: Boolean = false, val expectedHead: String? = null) {
+    val mainline: Int = 1, val switchBranch: String? = null, val ffOnly: Boolean = false, val expectedHead: String? = null,
+    val interactive: InteractiveRebasePlan? = null) {
     fun command(parentCount: Int): List<String> = when (kind) {
         PreviewKind.MERGE -> listOf("merge", "--no-edit", "--no-overwrite-ignore", "--no-autostash") + (if (ffOnly) listOf("--ff-only") else emptyList()) + target
-        PreviewKind.REBASE -> listOf("-c", "core.editor=true", "rebase") + rebaseFlags + target
+        PreviewKind.REBASE -> listOf("-c", "core.editor=true", "rebase") + (if (interactive == null) rebaseFlags else interactiveRebaseFlags) + target
         PreviewKind.CHERRY_PICK -> listOf("cherry-pick") + (if (parentCount > 1) listOf("-m", mainline.toString()) else emptyList()) + target
         PreviewKind.RESET -> listOf("reset", mode.flag, target)
     }
@@ -35,6 +36,7 @@ internal fun GitCli.previewFingerprint(intent: OperationIntent, state: RecoveryS
     val hash = MessageDigest.getInstance("SHA-256")
     fun add(bytes: ByteArray) { hash.update(java.nio.ByteBuffer.allocate(8).putLong(bytes.size.toLong()).array()); hash.update(bytes) }
     add(recovery.fingerprint(state ?: recovery.previewState(intent.request())).toByteArray())
+    intent.interactive?.let { add(it.todo().toByteArray()); add(it.head.toByteArray()) }
     add(bytes("config", "--null", "--list"))
     add(bytes("worktree", "list", "--porcelain"))
     val extra = listOf(ownDirectory.resolve("info/attributes"), commonDirectory.resolve("info/attributes"), commonDirectory.resolve("info/exclude")) +
@@ -45,6 +47,7 @@ internal fun GitCli.previewFingerprint(intent: OperationIntent, state: RecoveryS
 }
 
 internal fun GitCli.planOperation(requested: OperationIntent): OperationPlan {
+    requested.interactive?.let { check(requested.kind == PreviewKind.REBASE && requested.switchBranch == null && requested.target == it.base); checkInteractivePlan(it) }
     check(requested.expectedHead == null || requested.expectedHead == headIdentity()) { "Current branch changed after fetch; fetch or choose the integration target again" }
     check(currentOperation() == null) { t("Finish or abort the current operation first", "请先完成或中止当前操作") }
     val target = read("rev-parse", "--verify", "--end-of-options", "${requested.target}^{commit}").trim()
@@ -124,7 +127,7 @@ internal fun GitCli.planOperation(requested: OperationIntent): OperationPlan {
             if (saved.kind == "file" && root.resolve(path).length() <= 1024 * 1024) root.resolve(path).copyTo(contents.resolve(saved.content), overwrite = true)
         }
         val switched = intent.switchBranch?.let { git("switch", it) }
-        val result = if (switched != null && switched.exitCode != 0) switched else git(*intent.command(parentCount).toTypedArray())
+        val result = if (switched != null && switched.exitCode != 0) switched else intent.interactive?.let { sandbox.runInteractiveCommands(it) } ?: git(*intent.command(parentCount).toTypedArray())
         val paused = sandbox.currentOperation() != null
         val afterHead = git("rev-parse", "HEAD").requireSuccess().decodeToString().trim()
         val afterIndex = git("write-tree").let { if (it.exitCode == 0) it.text.trim() else null }
@@ -153,7 +156,8 @@ internal fun GitCli.planOperation(requested: OperationIntent): OperationPlan {
         val replayDirectory = root.resolve(".git/rebase-merge")
         val remaining = if (paused && intent.kind == PreviewKind.REBASE) replayDirectory.resolve("git-rebase-todo").takeIf { it.isFile }?.readLines()?.filter { it.isNotBlank() && !it.startsWith('#') }.orEmpty() else emptyList()
         val stopped = if (paused && intent.kind == PreviewKind.REBASE) replayDirectory.resolve("done").takeIf { it.isFile }?.readLines()?.lastOrNull { it.startsWith("pick ") || it.startsWith("merge ") } else null
-        val projected = listOfNotNull(stopped) + remaining
+        val projected = if (intent.interactive != null) emptyList() else listOfNotNull(stopped) + remaining
+        if (paused && intent.interactive != null) warnings += t("Edited commits after this pause have not been rehearsed; their resulting messages and files are not yet verified.", "暂停点之后的编辑计划尚未演练，后续说明与文件结果未验证。")
         check(fingerprint == previewFingerprint(intent)) { t("Repository changed during preview. Preview again.", "演练期间仓库发生变化，请重新预览。") }
         val addedSet = GitRepo.open(workTree).use { source -> added.filterNot { source.repository.objectDatabase.has(ObjectId.fromString(it)) }.toSet() }
         fun virtual(id: String) = if (id in addedSet) "preview:$id" else id
@@ -173,12 +177,13 @@ internal fun GitCli.planOperation(requested: OperationIntent): OperationPlan {
 }
 
 internal fun GitCli.executePlan(plan: OperationPlan): GitResult = coordinator.execute(OperationRequest(OperationKind.OTHER)) {
+    plan.intent.interactive?.let { checkInteractivePlan(it) }
     check(plan.repository == workTree.canonicalPath && plan.fingerprint == previewFingerprint(plan.intent)) { t("Preview expired. Preview the operation again.", "预览已过期，请重新预览操作。") }
     coordinator.execute(plan.intent.request()) {
         check(plan.fingerprint == previewFingerprint(plan.intent)) { "Preview expired while saving recovery point" }
         val switched = plan.intent.switchBranch?.let { raw(listOf("switch", it), teach = true).result() }
         if (switched != null && !switched.ok) switched else {
-            val result = raw(plan.intent.command(plan.parentCount), teach = true)
+            val result = plan.intent.interactive?.let { runInteractiveCommands(it, teach = true) } ?: raw(plan.intent.command(plan.parentCount), teach = true)
             if (plan.intent.kind == PreviewKind.REBASE) rebaseResult(result) else result.result()
         }
     }

@@ -183,6 +183,7 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean, onExit: 
     var pullDialog by remember { mutableStateOf(false) }
     var branchDrop by remember { mutableStateOf<Pair<RefLabel, RefLabel>?>(null) }
     var preview by remember { mutableStateOf<OperationIntent?>(null) }
+    var interactiveBase by remember { mutableStateOf<String?>(null) }
     var menu by remember { mutableStateOf<List<MenuEntry>?>(null) }
     var menuAnchor by remember { mutableStateOf<IntOffset?>(null) } // null：跟着鼠标弹出
     var dialog by remember { mutableStateOf<DialogSpec?>(null) }
@@ -480,6 +481,7 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean, onExit: 
 
     val actions = GitActions(
         preview = { if (!operationBusy && !loading) preview = it },
+        editRebase = { if (!operationBusy && !loading) interactiveBase = it },
         ask = { dialog = it },
         run = { running, done, op ->
             runOp(NetStatus(running, "", NetState.RUNNING), { describeAction(running, done, it) }, op = op)
@@ -638,6 +640,7 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean, onExit: 
         AppCommand("search", t("Search history", "搜索历史"), s != null, "⌘/Ctrl F") { view = MainView.HISTORY; scope.launch { withFrameNanos { }; searchFocus.requestFocus() } },
         AppCommand("refresh", t("Refresh repository", "刷新仓库"), s != null && !loading && !operationBusy, "⌘/Ctrl R") { (s?.repo?.workTree ?: s?.repo?.repository?.directory)?.let { open(it, reportSuccess = true) } },
         AppCommand("changes", t("Local changes", "本地改动"), cli != null) { view = MainView.CHANGES },
+        AppCommand("interactive-rebase", t("Interactive rebase…", "交互式变基…"), available && !inConflict && currentBranch != null) { interactiveBase = "HEAD^" },
         AppCommand("commit", t("Commit staged changes", "提交暂存改动"), available && !inConflict && commitDraft.message.isNotBlank() && (commitDraft.amend || working.any { it.hasStaged }), "⌘/Ctrl Enter") {
             runOp(NetStatus(t("Committing", "正在提交"), "", NetState.RUNNING), { describeAction(t("Committing", "正在提交"), t("Committed", "已提交"), it) }, onCompleted = { if (it) { commitDraft.message = ""; commitDraft.amend = false } }) { commit(commitDraft.message.trim(), commitDraft.amend) }
         },
@@ -893,6 +896,12 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean, onExit: 
     }
     menu?.let { GitMenuPopup(it, onDismiss = { menu = null }, anchor = menuAnchor) }
     dialog?.let { ActionDialog(it, onDismiss = { dialog = null }) }
+    if (cli != null) interactiveBase?.let { base ->
+        InteractiveRebaseDialog(cli, base, operationBusy || loading, onDismiss = { interactiveBase = null }) { intent ->
+            interactiveBase = null
+            preview = intent
+        }
+    }
     if (cli != null && s != null) preview?.let { intent ->
         PreviewDialog(cli, s.repo, intent, operationBusy || loading, onDismiss = { preview = null }) { plan ->
             preview = null

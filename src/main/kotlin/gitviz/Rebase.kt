@@ -38,7 +38,7 @@ internal fun GitCli.keepEmptyRebaseCommit(): GitResult = coordinator.execute(Ope
 }
 
 internal fun GitCli.rebaseResult(execution: GitExecution): GitResult {
-    val result = execution.result()
+    val result = readableRebaseExecution(execution).result()
     return if (result.failure != GitFailure.UNKNOWN && !result.ok && currentOperation() == GitOperation.REBASE && status().none { it.conflicted })
         result.copy(failure = GitFailure.PAUSED) else result
 }

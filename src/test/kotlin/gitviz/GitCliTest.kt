@@ -553,7 +553,7 @@ class GitCliTest {
     fun `head commit cannot be merged, picked or reset onto itself`() {
         val items = labels(commitMenu(commitInfo("abcdef0123"), isHead = true, "main", noActions))
         assertEquals(
-            setOf("Merge into main…", "Rebase onto this commit…", "Cherry-pick onto main…", "Reset main to here…"),
+            setOf("Merge into main…", "Rebase onto this commit…", "Edit commits after this…", "Cherry-pick onto main…", "Reset main to here…"),
             items.filterNot { it.enabled }.map { it.label }.toSet(),
         )
         assertTrue(labels(commitMenu(commitInfo("abcdef0123"), isHead = false, "main", noActions)).all { it.enabled })
