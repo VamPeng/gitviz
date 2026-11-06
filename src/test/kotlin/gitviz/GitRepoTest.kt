@@ -72,7 +72,8 @@ class GitRepoTest {
         assertEquals(listOf("half done", "one"), commits.map { it.shortMessage })
         val stash = commits.first()
         assertTrue(stash.isStash)
-        assertEquals(listOf(base.name), stash.parents)
+        assertEquals(2, stash.parents.size)
+        assertEquals(listOf(base.name), stash.graphParents)
         assertEquals(listOf("stash@{0}"), stash.refs.map { it.name })
     }
 
@@ -98,7 +99,7 @@ class GitRepoTest {
     @Test
     fun `path history keeps only commits touching the file and links them`() {
         val a1 = commit("a1", "a", 1_700_000_000)
-        commit("b1", "b", 1_700_000_100)
+        val b1 = commit("b1", "b", 1_700_000_100)
         val a2 = commit("a2", "a", 1_700_000_200)
         commit("b2", "b", 1_700_000_300)
         File(dir, "b").writeText("dirty")
@@ -108,8 +109,25 @@ class GitRepoTest {
             val result = repo.openHistory("a").load(GitRepo.PAGE_SIZE)
             assertEquals(listOf("a2", "a1"), result.commits.map { it.shortMessage })
             // 父提交改写成过滤后历史里的祖先，跳过了 b1
-            assertEquals(listOf(a1.name), result.commits.first().parents)
+            assertEquals(listOf(a1.name), result.commits.first().graphParents)
+            assertEquals(listOf(b1.name), result.commits.first().parents)
+            assertEquals(listOf(b1.name), repo.fileHistory(a2.name, "a").first().parents)
             assertEquals(listOf(a2.name), repo.searchCommits("2", path = "a").ids)
+        }
+    }
+
+    @Test
+    fun `reflog recovers unreachable commits and pages without losing old ids`() {
+        commit("first", "a")
+        val lost = commit("lost", "a", 1_700_000_100)
+        git.reset().setRef("HEAD~1").setMode(org.eclipse.jgit.api.ResetCommand.ResetType.HARD).call()
+        GitRepo.open(dir).use { repo ->
+            val page = repo.reflog(limit = 1)
+            assertEquals(1, page.entries.size)
+            assertTrue(page.hasMore)
+            assertEquals(lost.name, page.entries.first().oldId)
+            assertEquals("lost", repo.commit(lost.name).shortMessage)
+            assertTrue(repo.loadCommits().commits.none { it.id == lost.name })
         }
     }
 

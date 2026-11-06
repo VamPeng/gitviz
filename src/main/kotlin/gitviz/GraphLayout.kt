@@ -85,7 +85,7 @@ object GraphLayout {
         // 每个提交还有多少个子提交没输出
         val waiting = HashMap<String, Int>()
         for (c in commits) {
-            for (parent in c.parents.distinct()) {
+            for (parent in c.graphParents.distinct()) {
                 if (parent in byId) waiting.merge(parent, 1, Int::plus)
             }
         }
@@ -102,7 +102,7 @@ object GraphLayout {
                     continue
                 }
                 result += next
-                for (parent in next.parents.distinct()) {
+                for (parent in next.graphParents.distinct()) {
                     val left = (waiting[parent] ?: continue) - 1
                     waiting[parent] = left
                     if (left == 0 && delayed.remove(parent)) ready.addLast(byId.getValue(parent))
@@ -154,7 +154,7 @@ class GraphBuilder(private val colors: BranchColors = BranchColors.None) {
             // 汇入本节点的列都释放掉，本节点所在列改为等待第一个父提交
             for (i in incoming) { lanes[i] = null; tracks[i] = null }
             val outgoing = LinkedHashMap<Int, Track>()
-            c.parents.forEachIndexed { index, parent ->
+            c.graphParents.forEachIndexed { index, parent ->
                 if (index == 0) {
                     lanes[node] = parent
                     tracks[node] = nodeTrack

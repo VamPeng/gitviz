@@ -1,5 +1,11 @@
 package gitviz
 
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.*
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -104,6 +110,7 @@ internal fun CommitList(
     /** 侧边栏正指着的分支所在的线（Track.line），图上只亮这一条。 */
     sidebarHighlight: Int? = null,
     bottomPadding: Dp = 0.dp,
+    focusRequester: FocusRequester? = null,
 ) {
     // 优先级：鼠标在图上指着的线 > 侧边栏指着的分支 > 选中提交所在的线
     var hoverLine by remember { mutableStateOf<Int?>(null) }
@@ -121,7 +128,20 @@ internal fun CommitList(
             .collect { latestOnNearEnd() }
     }
 
-    BoxWithConstraints(modifier) {
+    val focus = focusRequester ?: remember { FocusRequester() }
+    val scope = rememberCoroutineScope()
+    BoxWithConstraints(modifier.focusRequester(focus).onKeyEvent { event ->
+        if (event.type != KeyEventType.KeyDown || event.isMetaPressed || event.isCtrlPressed || event.isAltPressed || shown.isEmpty()) false else {
+            val position = shown.indexOfFirst { state.result.commits[it].id == selected?.id }
+            val next = when (event.key) {
+                Key.J, Key.DirectionDown -> (position + 1).coerceIn(shown.indices)
+                Key.K, Key.DirectionUp -> (position - 1).coerceIn(shown.indices)
+                Key.Enter -> position.coerceIn(shown.indices)
+                else -> -1
+            }
+            if (next >= 0) { onSelect(state.result.commits[shown[next]]); scope.launch { listState.animateScrollToItem(next) }; true } else false
+        }
+    }.focusable()) {
         // 图最多占列表宽度的 40%，再宽就挤掉说明了；至少能放 MIN_VISIBLE_LANES 列
         val maxLanes = maxOf(MIN_VISIBLE_LANES, ((maxWidth * 0.4f) / LaneWidth).toInt())
         val lanesShown = widest.coerceIn(1, maxLanes)
@@ -134,7 +154,7 @@ internal fun CommitList(
                     items(shown, key = { state.result.commits[it].id }) { index ->
                         val c = state.result.commits[index]
                         CommitRow(
-                            c, state.rows[index], lanesShown, c.id == state.headId, c.id == selected?.id, now, onSelect, onMenu,
+                            c, state.rows[index], lanesShown, c.id == state.headId, c.id == selected?.id, now, { focus.requestFocus(); onSelect(it) }, onMenu,
                             state.branchColors, highlight, onHoverLine = { hoverLine = it },
                         )
                     }
@@ -236,7 +256,7 @@ private fun CommitRow(
 /** 引用标记：当前分支用主色实心，本地分支浅底，远程和标签描边。 */
 @Composable
 private fun RefChip(ref: RefLabel, lane: Color) {
-    val modifier = Modifier.padding(end = 6.dp)
+    val modifier = Modifier.padding(end = 6.dp).branchDrag(ref)
     when {
         ref.kind == RefKind.HEAD -> Chip(ref.name, Palette.Ink, Palette.Rail, modifier, bold = true)
         ref.kind == RefKind.STASH -> Chip(ref.name, Color.Transparent, Palette.Muted, modifier, outline = Palette.Line)

@@ -127,8 +127,8 @@ private fun StashDetail(cli: GitCli, entry: StashEntry, a: GitActions, modifier:
                         }
                         HorizontalDivider()
                         val content = Modifier.fillMaxWidth().weight(1f)
-                        Loaded(entry.id to current, content, { parseDiffLines(cli.stashDiff(entry, current)) }) { lines ->
-                            DiffBody(lines, mode, content)
+                        Loaded(entry.id to current, content, { SourceDiff(parseDiffLines(cli.stashDiff(entry, current)), cli.stashSources(entry, current)) }) { diff ->
+                            DiffBody(diff.lines, mode, content, sources = diff.sources)
                         }
                     }
                 }

@@ -1,5 +1,10 @@
 package gitviz
 
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.*
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
@@ -68,7 +73,26 @@ fun RefSidebar(
         collapsed = if (key in collapsed) collapsed - key else collapsed + key
     }
 
-    Box(modifier) {
+    val focus = remember { FocusRequester() }
+    val scope = rememberCoroutineScope()
+    var keyboardRef by remember { mutableStateOf<RefLabel?>(null) }
+    val navigation = buildList<Pair<RefTarget, Int>> {
+        var position = 0
+        Sections.forEachIndexed { i, (_, kind) ->
+            position++
+            val sectionKey = "$kind:"
+            if (filtering || sectionKey !in collapsed) flattenRefTree(trees[i].second) { !filtering && sectionKey + it in collapsed }.forEach { row ->
+                row.node.ref?.let { add(it to position) }; position++
+            }
+        }
+    }
+    Box(modifier.focusRequester(focus).onKeyEvent { e ->
+        if (e.type != KeyEventType.KeyDown || e.isMetaPressed || e.isCtrlPressed || e.isAltPressed || navigation.isEmpty()) false else {
+            val current = navigation.indexOfFirst { it.first.label == keyboardRef }.takeIf { it >= 0 } ?: navigation.indexOfFirst { it.first.commitId == selectedId }
+            val index = when (e.key) { Key.J, Key.DirectionDown -> current + 1; Key.K, Key.DirectionUp -> current - 1; Key.Enter -> current; else -> Int.MIN_VALUE }
+            if (index == Int.MIN_VALUE) false else { val next = navigation[index.coerceIn(navigation.indices)]; keyboardRef = next.first.label; onSelect(next.first); scope.launch { listState.animateScrollToItem(next.second) }; true }
+        }
+    }.focusable()) {
         LazyColumn(Modifier.fillMaxSize().padding(end = 10.dp), state = listState) {
             Sections.forEachIndexed { index, (title, kind) ->
                 val (count, tree) = trees[index]
@@ -88,9 +112,9 @@ fun RefSidebar(
                         } else {
                             RefLeafRow(
                                     row, ref, ref.commitId == selectedId, branchColors.index(ref.label),
-                                    onHover = onHover, onClick = { onSelect(ref) },
+                                    onHover = onHover, onClick = { keyboardRef = ref.label; focus.requestFocus(); onSelect(ref) },
                                     onOpen = { if (ref.label.kind == RefKind.BRANCH) onBranchOpen(ref) },
-                                    onMenu = { if (ref.label.kind == RefKind.BRANCH) onBranchMenu(ref) },
+                                    onMenu = { if (ref.label.kind == RefKind.BRANCH || ref.label.kind == RefKind.REMOTE) onBranchMenu(ref) },
                                 )
                         }
                     }
@@ -155,7 +179,7 @@ private fun RefLeafRow(
     var hovering by remember { mutableStateOf(false) }
     DisposableEffect(Unit) { onDispose { if (hovering) latestOnHover(null) } }
     Row(
-        Modifier.fillMaxWidth().height(25.dp)
+        Modifier.fillMaxWidth().height(25.dp).branchDrag(ref.label)
             .onPointerEvent(PointerEventType.Enter) { hovering = true; latestOnHover(ref) }
             .onPointerEvent(PointerEventType.Exit) { hovering = false; latestOnHover(null) }
             .onRightClick(onMenu)

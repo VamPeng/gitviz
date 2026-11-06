@@ -20,7 +20,7 @@ fun parseDiffLines(diff: String): List<DiffLine> {
     var inHunks = false
     var oldNo = 0
     var newNo = 0
-    return diff.lines().map { line ->
+    return diff.split('\n').map { line ->
         val hunk = HunkStart.find(line)
         when {
             hunk != null -> {

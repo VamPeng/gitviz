@@ -84,7 +84,7 @@ internal fun CommitDetail(
             val file = selectedFile
             if (file != null) {
                 FilePane(repo, commit, file, tab, { tab = it }, mode, { mode = it }, onOpenCommit, onShowFileHistory,
-                    Modifier.weight(1f).fillMaxHeight().background(Palette.Panel))
+                    Modifier.weight(1f).fillMaxHeight().background(Palette.Panel), parentIndex)
             } else {
                 Spacer(Modifier.weight(1f))
             }
@@ -260,6 +260,7 @@ private fun FilePane(
     onOpenCommit: (String) -> Unit,
     onShowFileHistory: (String) -> Unit,
     modifier: Modifier,
+    parentIndex: Int = 0,
 ) {
     Column(modifier) {
         Row(
@@ -279,7 +280,7 @@ private fun FilePane(
         when (tab) {
             FileTab.Diff -> DiffContent(repo, file, mode, content)
             FileTab.History -> HistoryContent(repo, commit, file, onOpenCommit, onShowFileHistory, content)
-            FileTab.Blame -> BlameContent(repo, commit, file, onOpenCommit, content)
+            FileTab.Blame -> BlameTraceView(repo, commit, file, onOpenCommit, content, parentIndex)
         }
     }
 }
@@ -306,8 +307,7 @@ internal fun Message(text: String, modifier: Modifier) {
 
 /** 代码列表：字符多的时候可以横向滚动，所有行一起动。 */
 @Composable
-private fun CodeList(longestLine: Int, gutter: Dp, modifier: Modifier, content: LazyListScope.() -> Unit) {
-    val listState = rememberLazyListState()
+internal fun CodeList(longestLine: Int, gutter: Dp, modifier: Modifier, listState: androidx.compose.foundation.lazy.LazyListState = rememberLazyListState(), content: LazyListScope.() -> Unit) {
     BoxWithConstraints(modifier) {
         val width = max(maxWidth, gutter + CharWidth * longestLine + 24.dp)
         Box(Modifier.fillMaxSize().horizontalScroll(rememberScrollState())) {
@@ -318,7 +318,7 @@ private fun CodeList(longestLine: Int, gutter: Dp, modifier: Modifier, content: 
 }
 
 @Composable
-private fun LineNumber(no: Int?) {
+internal fun LineNumber(no: Int?) {
     Text(
         no?.toString().orEmpty(), fontFamily = CodeFont, fontSize = TypeScale.Small, lineHeight = 18.sp, color = Palette.Faint,
         softWrap = false, textAlign = androidx.compose.ui.text.style.TextAlign.End,
@@ -327,7 +327,7 @@ private fun LineNumber(no: Int?) {
 }
 
 @Composable
-private fun CodeText(text: String, color: Color, modifier: Modifier = Modifier) {
+internal fun CodeText(text: String, color: Color, modifier: Modifier = Modifier) {
     Text(text.ifEmpty { " " }, fontFamily = CodeFont, fontSize = TypeScale.Small, lineHeight = 18.sp, color = color,
         softWrap = false, maxLines = 1, modifier = modifier)
 }
@@ -344,7 +344,7 @@ private val DiffLine.code: String get() = if (kind == DiffLineKind.HUNK) text el
 
 @Composable
 private fun DiffContent(repo: GitRepo, file: FileChange, mode: DiffMode, modifier: Modifier) {
-    Loaded(file, modifier, { parseDiffLines(repo.diffText(file)) }) { lines -> DiffBody(lines, mode, modifier) }
+    Loaded(file, modifier, { SourceDiff(parseDiffLines(repo.diffText(file)), repo.diffSources(file)) }) { diff -> DiffBody(diff.lines, mode, modifier, sources = diff.sources) }
 }
 
 /**
@@ -352,7 +352,9 @@ private fun DiffContent(repo: GitRepo, file: FileChange, mode: DiffMode, modifie
  * 内容和权限都改了时，在顶上加一行权限变化。
  */
 @Composable
-internal fun DiffBody(lines: List<DiffLine>, mode: DiffMode, modifier: Modifier) {
+internal fun DiffBody(lines: List<DiffLine>, mode: DiffMode, modifier: Modifier, selection: DiffSelection? = null, sources: DiffSources? = null) {
+    var syntax by remember(sources) { mutableStateOf<DiffSyntax?>(null) }
+    LaunchedEffect(sources) { sources?.let { syntax = kotlinx.coroutines.runInterruptible(kotlinx.coroutines.Dispatchers.Default) { diffSyntaxCache.highlight(it) } } }
     val body = remember(lines) { lines.filter { it.kind != DiffLineKind.HEADER } }
     if (body.isEmpty()) {
         Message(remember(lines) { emptyDiffMessage(lines) }, modifier)
@@ -366,38 +368,39 @@ internal fun DiffBody(lines: List<DiffLine>, mode: DiffMode, modifier: Modifier)
             HorizontalDivider()
         }
         val content = Modifier.fillMaxWidth().weight(1f)
-        if (mode == DiffMode.Unified) UnifiedDiff(body, content) else SplitDiff(lines, content)
+        if (mode == DiffMode.Unified) UnifiedDiff(body, content, selection, syntax) else SplitDiff(lines, content, selection, syntax)
     }
 }
 
 @Composable
-internal fun UnifiedDiff(lines: List<DiffLine>, modifier: Modifier) {
+internal fun UnifiedDiff(lines: List<DiffLine>, modifier: Modifier, selection: DiffSelection? = null, syntax: DiffSyntax? = null) {
     val longest = remember(lines) { lines.maxOf { it.text.length } }
     CodeList(longest, NumberColumn * 2 + 14.dp, modifier) {
         items(lines) { line ->
             val (fg, bg) = line.colors()
-            Row(Modifier.fillMaxWidth().height(LineHeight).background(bg)) {
+            Row(Modifier.fillMaxWidth().height(LineHeight).background(if (selection?.selected?.invoke(line) == true) Palette.Accent.copy(alpha = 0.25f) else bg)
+                .clickable(enabled = selection != null && line.kind in setOf(DiffLineKind.HUNK, DiffLineKind.ADDED, DiffLineKind.REMOVED)) { selection?.toggle?.invoke(line) }) {
                 LineNumber(line.oldNo)
                 LineNumber(line.newNo)
                 val sign = when (line.kind) { DiffLineKind.ADDED -> "+"; DiffLineKind.REMOVED -> "−"; else -> "" }
                 CodeText(sign, fg, Modifier.width(14.dp))
-                CodeText(line.code, fg)
+                DiffCodeText(line.code, fg, syntax?.line(line, line.kind == DiffLineKind.REMOVED))
             }
         }
     }
 }
 
 @Composable
-internal fun SplitDiff(lines: List<DiffLine>, modifier: Modifier) {
+internal fun SplitDiff(lines: List<DiffLine>, modifier: Modifier, selection: DiffSelection? = null, syntax: DiffSyntax? = null) {
     val rows = remember(lines) { toSplitRows(lines) }
     val listState = rememberLazyListState()
     Box(modifier) {
         LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(vertical = 4.dp)) {
             items(rows) { row ->
                 Row(Modifier.fillMaxWidth().height(LineHeight)) {
-                    SplitCell(row.left, left = true, Modifier.weight(1f).fillMaxHeight())
+                    SplitCell(row.left, left = true, Modifier.weight(1f).fillMaxHeight(), selection, syntax)
                     VerticalDivider()
-                    SplitCell(row.right, left = false, Modifier.weight(1f).fillMaxHeight())
+                    SplitCell(row.right, left = false, Modifier.weight(1f).fillMaxHeight(), selection, syntax)
                 }
             }
         }
@@ -406,15 +409,16 @@ internal fun SplitDiff(lines: List<DiffLine>, modifier: Modifier) {
 }
 
 @Composable
-private fun SplitCell(line: DiffLine?, left: Boolean, modifier: Modifier) {
+private fun SplitCell(line: DiffLine?, left: Boolean, modifier: Modifier, selection: DiffSelection? = null, syntax: DiffSyntax? = null) {
     if (line == null) {
         Spacer(modifier)
         return
     }
     val (fg, bg) = line.colors()
-    Row(modifier.background(bg)) {
+    Row(modifier.background(if (selection?.selected?.invoke(line) == true) Palette.Accent.copy(alpha = 0.25f) else bg)
+        .clickable(enabled = selection != null && line.kind in setOf(DiffLineKind.HUNK, DiffLineKind.ADDED, DiffLineKind.REMOVED)) { selection?.toggle?.invoke(line) }) {
         LineNumber(if (left) line.oldNo else line.newNo)
-        CodeText(line.code, fg, Modifier.clipToBounds())
+        DiffCodeText(line.code, fg, syntax?.line(line, left), Modifier.clipToBounds())
     }
 }
 
@@ -461,37 +465,22 @@ private fun HistoryContent(
     }
 }
 
+
 @Composable
-private fun BlameContent(repo: GitRepo, commit: CommitInfo, file: FileChange, onOpenCommit: (String) -> Unit, modifier: Modifier) {
-    if (file.type == DiffEntry.ChangeType.DELETE) {
-        Message(t("This file was deleted in this commit", "这个文件在这个提交里被删除了"), modifier)
-        return
-    }
-    Loaded(file to commit.id, modifier, { repo.blame(commit.id, file.path) }) { lines ->
-        if (lines.isEmpty()) {
-            Message(t("Binary or empty file; nothing to show", "二进制文件或空文件，没有可显示的行"), modifier)
-            return@Loaded
-        }
-        val longest = remember(lines) { lines.maxOf { it.text.length } }
-        CodeList(longest, BlameColumn + NumberColumn, modifier) {
-            itemsIndexed(lines) { i, line ->
-                // 连续几行来自同一个提交时，只在第一行写哈希和作者
-                val first = i == 0 || lines[i - 1].commitId != line.commitId
-                Row(Modifier.fillMaxWidth().height(LineHeight).background(if (line.commitId == commit.id) Palette.Hover else Color.Transparent)) {
-                    Row(
-                        Modifier.width(BlameColumn).fillMaxHeight().clickable { onOpenCommit(line.commitId) }.padding(start = 14.dp, end = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        if (first) {
-                            CodeText(line.commitId.take(7), Palette.Link)
-                            Text(line.author, fontSize = TypeScale.Caption, lineHeight = 18.sp, color = Palette.Muted, maxLines = 1,
-                                overflow = TextOverflow.Ellipsis)
-                        }
-                    }
-                    LineNumber(line.lineNo)
-                    CodeText(line.text, Palette.Ink)
-                }
+private fun DiffCodeText(code: String, color: Color, syntax: SyntaxLine?, modifier: Modifier = Modifier) {
+    val text = code.removeSuffix("\r")
+    val annotated = androidx.compose.ui.text.buildAnnotatedString {
+        append(text.ifEmpty { " " })
+        if (syntax?.text == text) syntax.tokens.forEach { token ->
+            val tokenColor = when (token.kind) {
+                SyntaxKind.KEYWORD -> Palette.Copied
+                SyntaxKind.STRING -> Palette.Added
+                SyntaxKind.COMMENT -> Palette.Faint
+                SyntaxKind.NUMBER -> Palette.Modified
             }
+            addStyle(androidx.compose.ui.text.SpanStyle(color = tokenColor), token.start, token.end)
         }
     }
+    Text(annotated, fontFamily = CodeFont, fontSize = TypeScale.Small, lineHeight = 18.sp,
+        color = if (syntax?.text == text) Palette.Ink else color, softWrap = false, maxLines = 1, modifier = modifier)
 }

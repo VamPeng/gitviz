@@ -34,6 +34,7 @@ fun GlassWindow(
     AwtWindow(
         create = {
             ComposeWindow().apply {
+                defaultCloseOperation = javax.swing.WindowConstants.DO_NOTHING_ON_CLOSE
                 this.title = title
                 setSize(size.width.value.toInt(), size.height.value.toInt())
                 isLocationByPlatform = true

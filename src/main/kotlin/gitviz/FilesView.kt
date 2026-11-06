@@ -160,8 +160,7 @@ internal fun FilesView(
         if (canIgnore) {
             items += MenuItem(t("Add to .gitignore", "加入 .gitignore"), enabled = !busy) {
                 onRun(t("Updating .gitignore", "正在更新 .gitignore"), t("Added ${entry.name} to .gitignore", "已将 ${entry.name} 加入 .gitignore"), {
-                    appendToGitignore(root, entry.path, entry.isDir)
-                    GitResult(null, "")
+                    ignore(entry.path, entry.isDir)
                 }) { revision++ }
             }
         }

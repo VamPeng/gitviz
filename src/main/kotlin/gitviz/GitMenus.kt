@@ -67,6 +67,7 @@ internal class GitActions(
     val ask: (DialogSpec) -> Unit,
     val run: (running: String, done: String, op: GitCli.() -> GitResult) -> Unit,
     val copy: (String) -> Unit,
+    val preview: (OperationIntent) -> Unit = {},
 )
 
 internal fun commitMenu(c: CommitInfo, isHead: Boolean, branch: String?, a: GitActions): List<MenuEntry> {
@@ -86,24 +87,21 @@ internal fun commitMenu(c: CommitInfo, isHead: Boolean, branch: String?, a: GitA
         },
         MenuSeparator,
         MenuItem(t("Merge into $target…", "合并到 $target…"), enabled = !isHead) {
-            a.ask(DialogSpec(t("Merge", "合并"), t("Merge $short into $target.", "把 $short 合并到 $target。"), t("Merge", "合并")) { _, _ ->
-                a.run(t("Merging", "正在合并"), t("Merged $short", "已合并 $short")) { merge(c.id) }
-            })
+            a.preview(OperationIntent(PreviewKind.MERGE, c.id))
+        },
+        MenuItem(t("Rebase onto this commit…", "变基到这个提交…"), enabled = !isHead && branch != null) {
+            a.preview(OperationIntent(PreviewKind.REBASE, c.id))
         },
         MenuItem(t("Cherry-pick onto $target…", "Cherry-pick 到 $target…"), enabled = !isHead) {
-            a.ask(DialogSpec("Cherry-pick", t("Apply the changes from $short to $target.", "把 $short 的改动应用到 $target。"), t("Apply", "应用")) { _, _ ->
-                a.run(t("Applying", "正在应用"), t("Applied $short", "已应用 $short")) { cherryPick(c) }
-            })
+            a.preview(OperationIntent(PreviewKind.CHERRY_PICK, c.id))
         },
         MenuItem(t("Revert this commit…", "回滚这个提交…")) {
-            a.ask(DialogSpec(t("Revert commit", "回滚提交"), t("Add a commit on $target that undoes the changes from $short.", "在 $target 上新增一个提交，撤销 $short 的改动。"), t("Revert", "回滚")) { _, _ ->
-                a.run(t("Reverting", "正在回滚"), t("Reverted $short", "已回滚 $short")) { revert(c) }
+            a.ask(DialogSpec(t("Revert commit", "回滚提交"), t("Add a commit on $target that undoes the changes from $short.", "在 $target 上新增一个提交，撤销 $short 的改动。"), t("Revert", "回滚"), input = if (c.parents.size > 1) t("Mainline parent (1–${c.parents.size})", "主父提交（1–${c.parents.size}）") else null, initial = "1") { parent, _ ->
+                a.run(t("Reverting", "正在回滚"), t("Reverted $short", "已回滚 $short")) { revert(c, parent.toIntOrNull() ?: 1) }
             })
         },
         MenuItem(t("Reset $target to here…", "把 $target 重置到这里…"), enabled = !isHead, danger = true) {
-            a.ask(DialogSpec(t("Reset $target", "重置 $target"), t("Move $target to $short.", "把 $target 移到 $short。"), t("Reset", "重置"), danger = true, modes = true) { _, mode ->
-                a.run(t("Resetting", "正在重置"), t("Reset to $short", "已重置到 $short")) { reset(c.id, mode) }
-            })
+            a.preview(OperationIntent(PreviewKind.RESET, c.id))
         },
         MenuSeparator,
         MenuItem(t("Copy hash", "复制哈希")) { a.copy(c.id) },
@@ -122,9 +120,10 @@ internal fun branchMenu(name: String, isCurrent: Boolean, target: String?, a: Gi
         a.run(t("Switching", "正在切换"), t("Switched to $name", "已切换到 $name")) { switchTo(name) }
     },
     MenuItem(t("Merge into ${target ?: "HEAD"}…", "合并到 ${target ?: "当前提交"}…"), enabled = !isCurrent) {
-        a.ask(DialogSpec(t("Merge", "合并"), t("Merge $name into ${target ?: "HEAD"}.", "把 $name 合并到 ${target ?: "当前提交"}。"), t("Merge", "合并")) { _, _ ->
-            a.run(t("Merging", "正在合并"), t("Merged $name", "已合并 $name")) { merge(name) }
-        })
+        a.preview(OperationIntent(PreviewKind.MERGE, "refs/heads/$name"))
+    },
+    MenuItem(t("Rebase current branch onto this…", "将当前分支变基到这里…"), enabled = !isCurrent && target != null) {
+        a.preview(OperationIntent(PreviewKind.REBASE, "refs/heads/$name"))
     },
     MenuSeparator,
     MenuItem(t("Rename…", "重命名…"), enabled = !isCurrent) {
@@ -250,7 +249,7 @@ internal fun ActionDialog(spec: DialogSpec, onDismiss: () -> Unit) {
                         text, { text = it }, singleLine = true,
                         textStyle = TextStyle(color = Palette.Ink, fontSize = TypeScale.Body, fontFamily = UiFont),
                         cursorBrush = SolidColor(Palette.Accent),
-                        modifier = Modifier.fillMaxWidth().focusRequester(focus)
+                        modifier = Modifier.textInputFocus().fillMaxWidth().focusRequester(focus)
                             .background(Palette.Rail, shape).border(1.dp, Palette.Line, shape)
                             .padding(horizontal = 10.dp, vertical = 8.dp),
                     )

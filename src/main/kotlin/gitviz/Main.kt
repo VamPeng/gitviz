@@ -1,5 +1,6 @@
 package gitviz
 
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -12,6 +13,9 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.window.WindowDraggableArea
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.input.key.*
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -66,14 +70,15 @@ fun main(args: Array<String>) {
         if (Palette.isDark) "NSAppearanceNameDarkAqua" else "NSAppearanceNameAqua",
     )
     val size = DpSize(1360.dp, 860.dp)
-    val root: @Composable FrameWindowScope.() -> Unit = {
+    var requestClose: (() -> Unit)? = null
+    val root: @Composable FrameWindowScope.(() -> Unit) -> Unit = { exit ->
         GitVizTheme {
             Surface(
                 Modifier.fillMaxSize().clip(RoundedCornerShape(if (isMac) 16.dp else 0.dp)),
                 color = Palette.Ground,
                 contentColor = Palette.Ink,
             ) {
-                App(initial, reportInitialError = args.isNotEmpty())
+                App(initial, reportInitialError = args.isNotEmpty(), onExit = exit, registerClose = { requestClose = it })
             }
         }
     }
@@ -86,15 +91,15 @@ fun main(args: Array<String>) {
     }
     application {
         if (isMac) {
-            GlassWindow(AppIcon.name, size, onClose = ::exitApplication) { root() }
+            GlassWindow(AppIcon.name, size, onClose = { requestClose?.invoke() ?: exitApplication() }) { root { exitApplication() } }
         } else {
             Window(
-                onCloseRequest = ::exitApplication,
+                onCloseRequest = { requestClose?.invoke() ?: exitApplication() },
                 title = AppIcon.name,
                 icon = appIcon?.let { remember { BitmapPainter(it.toComposeImageBitmap()) } },
                 state = rememberWindowState(size = size),
             ) {
-                root()
+                root { exitApplication() }
             }
         }
     }
@@ -125,7 +130,7 @@ private const val MIN_RELOAD_GAP_MS = 1500L
 /** 监听期间没有变化时，多久兜底读一次。 */
 private const val FALLBACK_RELOAD_MS = 30_000L
 
-private enum class MainView { HISTORY, CHANGES, FILES, STASH, CONFLICT, SETTINGS }
+private enum class MainView { HISTORY, CHANGES, FILES, STASH, CONFLICT, SETTINGS, REFLOG, RECOVERY, COMPARE }
 
 /** 打开的仓库和已加载的那部分历史。不可变，每加载一页换一个新对象。 */
 internal class RepoState(
@@ -161,7 +166,7 @@ internal class RepoState(
 }
 
 @Composable
-fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
+fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean, onExit: () -> Unit = {}, registerClose: ((() -> Unit)?) -> Unit = {}) {
     val scope = rememberCoroutineScope()
     var state by remember { mutableStateOf<RepoState?>(null) }
     // 一启动就要打开上次的仓库，先当成正在加载，第一帧不要露出欢迎页的按钮
@@ -173,6 +178,9 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
     var view by remember { mutableStateOf(MainView.HISTORY) }
     var stashes by remember { mutableStateOf(emptyList<StashEntry>()) }
     var operation by remember { mutableStateOf<GitOperation?>(null) }
+    var pullDialog by remember { mutableStateOf(false) }
+    var branchDrop by remember { mutableStateOf<Pair<RefLabel, RefLabel>?>(null) }
+    var preview by remember { mutableStateOf<OperationIntent?>(null) }
     var menu by remember { mutableStateOf<List<MenuEntry>?>(null) }
     var menuAnchor by remember { mutableStateOf<IntOffset?>(null) } // null：跟着鼠标弹出
     var dialog by remember { mutableStateOf<DialogSpec?>(null) }
@@ -195,9 +203,42 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
     var workingReloads by remember { mutableStateOf(0) }
     // 上次读历史时引用的样子。别处（命令行、编辑器）新建分支、提交、切分支后它会变，就要重读历史
     var refsSeen by remember { mutableStateOf<String?>(null) }
+    val conflictDrafts = remember { mutableStateMapOf<String, ConflictDraft>() }
+    var draftSession by remember { mutableStateOf<String?>(null) }
+    val closeAction by rememberUpdatedState<() -> Unit> {
+        when {
+            operationBusy -> dialog = DialogSpec(t("Operation in progress", "操作正在执行"), t("Wait for the Git operation to finish before closing.", "请等 Git 操作结束后再关闭。"), t("Keep open", "保持打开")) { _, _ -> }
+            conflictDrafts.values.any { it.dirty } -> dialog = DialogSpec(t("Discard unsaved conflict drafts?", "放弃未保存的冲突草稿？"), t("Save the drafts before closing, or discard them and close.", "关闭前请先保存草稿，或放弃草稿后关闭。"), t("Discard and close", "放弃并关闭"), danger = true) { _, _ -> onExit() }
+            else -> onExit()
+        }
+    }
+    DisposableEffect(Unit) {
+        registerClose { closeAction() }
+        val desktop = if (java.awt.Desktop.isDesktopSupported()) java.awt.Desktop.getDesktop() else null
+        if (desktop?.isSupported(java.awt.Desktop.Action.APP_QUIT_HANDLER) == true) desktop.setQuitHandler { _, response ->
+            response.cancelQuit()
+            javax.swing.SwingUtilities.invokeLater { closeAction() }
+        }
+        onDispose {
+            registerClose(null)
+            if (desktop?.isSupported(java.awt.Desktop.Action.APP_QUIT_HANDLER) == true) desktop.setQuitHandler(null)
+        }
+    }
+    var openGeneration by remember { mutableStateOf(0L) }
+    var historyError by remember { mutableStateOf<String?>(null) }
 
     /** minShowMs：至少转这么久再换成仓库，启动时用，免得加载画面一闪而过。 */
-    fun open(dir: File, quiet: Boolean = false, minShowMs: Long = 0, reportSuccess: Boolean = false) {
+    fun open(dir: File, quiet: Boolean = false, minShowMs: Long = 0, reportSuccess: Boolean = false, internalRefresh: Boolean = false, discardDrafts: Boolean = false) {
+        if (!discardDrafts && state?.repo?.workTree?.canonicalFile != dir.canonicalFile && conflictDrafts.values.any { it.dirty }) {
+            dialog = DialogSpec(t("Discard conflict drafts?", "放弃冲突草稿？"), t("Save the drafts before switching repositories, or discard them.", "切换仓库前请先保存草稿，或放弃这些草稿。"), t("Discard and switch", "放弃并切换"), danger = true) { _, _ ->
+                conflictDrafts.clear()
+                open(dir, quiet, minShowMs, reportSuccess, internalRefresh, discardDrafts = true)
+            }
+            return
+        }
+        if (operationBusy && !internalRefresh) return
+        val generation = ++openGeneration
+        loading = true
         scope.launch {
             val started = System.currentTimeMillis()
             loading = true
@@ -208,15 +249,16 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                 val lastVisible = commitListState.layoutInfo.visibleItemsInfo.lastOrNull()?.key as? String
                 val wanted = listOfNotNull(lastVisible, selected?.id)
                 val needed = before?.let { st -> wanted.mapNotNull { st.indexById[it] }.maxOrNull()?.plus(1) } ?: 0
+                var initialRefs: String? = null
                 val newState = withContext(Dispatchers.IO) {
                     val repo = GitRepo.open(dir)
                     try {
                         // 先记下再读历史，读的过程中引用又变了，下次比较时会再读一遍
-                        refsSeen = runCatching { repo.refsSnapshot() }.getOrNull()
+                        initialRefs = repo.refsSnapshot()
                         // 只看某个文件时继续只看它
                         val same = before?.takeIf { it.repo.repository.directory == repo.repository.directory }
                         val keep = if (same != null) needed else 0
-                        val history = repo.openHistory(same?.history?.path)
+                        val history = repo.openHistory(same?.history?.query ?: HistoryQuery())
                         var result = history.load(maxOf(GitRepo.PAGE_SIZE, keep))
                         // 新提交会把旧提交往后挤，按原来的条数可能正好读不到它们，就再读一页
                         if (same != null && result.truncated) {
@@ -231,10 +273,14 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                 }
                 val waited = System.currentTimeMillis() - started
                 if (waited < minShowMs) delay(minShowMs - waited)
+                if (generation != openGeneration) { newState.repo.close(); return@launch }
                 historyLock.withLock {
+                    if (generation != openGeneration) { newState.repo.close(); return@launch }
                     state?.repo?.close()
                     state = newState
                 }
+                historyError = null
+                refsSeen = initialRefs
                 newState.repo.workTree?.let { Settings.addRecentRepo(it.path) }
                 // 刷新时保持选中；提交不在了或换了仓库才回到第一个
                 val commits = newState.result.commits
@@ -242,6 +288,20 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                 selected = if (sameRepository) commits.firstOrNull { it.id == selected?.id } ?: commits.firstOrNull()
                     else commits.firstOrNull()
                 if (!sameRepository) {
+                    working = emptyList()
+                    stashes = emptyList()
+                    operation = null
+                    draftSession = null
+                    stashSelected = null
+                    changesFocus = null
+                    hoveredRef = null
+                    query = ""
+                    preview = null
+                    branchDrop = null
+                    pullDialog = false
+                    conflictDrafts.clear()
+                    dialog = null
+                    menu = null
                     scrollTarget = selected?.id
                 }
                 if (reportSuccess) net = NetStatus(
@@ -249,9 +309,10 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                     newState.repo.displayName, NetState.DONE)
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
-                if (!quiet) net = NetStatus(t("Couldn't open repository", "打开仓库失败"), e.message ?: e.toString(), NetState.FAILED)
+                if (e is HistoryScopeException && generation == openGeneration) historyError = e.message
+                if ((!quiet || e is HistoryScopeException) && generation == openGeneration) net = NetStatus(t("Couldn't open repository", "打开仓库失败"), e.message ?: e.toString(), NetState.FAILED)
             } finally {
-                loading = false
+                if (generation == openGeneration) loading = false
             }
         }
     }
@@ -272,6 +333,7 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                 try {
                     val result = withContext(Dispatchers.IO) { attemptGitOperation { GitCli(parent).clone(url, name) } }
                     net = describeAction(t("Cloning", "正在克隆"), t("Cloned $name", "已克隆 $name"), result)
+                    operationBusy = false
                     if (result.ok) open(File(parent, name))
                 } finally {
                     operationBusy = false
@@ -281,22 +343,37 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
     }
     val s = state
     val workTree = s?.repo?.workTree
+    val historyFocus = remember { FocusRequester() }
+    var commandsMenuOpen by remember { mutableStateOf(false) }
+    val rootFocus = remember { FocusRequester() }
+    val searchFocus = remember { FocusRequester() }
+    val textFocus = remember { TextFocus() }
+    var paletteOpen by remember { mutableStateOf(false) }
     val cli = remember(workTree) { workTree?.let(::GitCli) } // 刷新时不换对象，正在写的提交说明才不会丢
     val clipboard = LocalClipboardManager.current
 
-    suspend fun reloadWorking() {
-        val git = cli
-        working = git?.let { withContext(Dispatchers.IO) { it.status() } }.orEmpty()
-        stashes = git?.let { withContext(Dispatchers.IO) { it.stashList() } }.orEmpty()
-        operation = git?.let { withContext(Dispatchers.IO) { it.currentOperation() } }
-        workingReloads++
-        // 监听只会叫我们重读工作区，引用变了的话历史和分支列表也得跟着重读
+    suspend fun reloadWorking(force: Boolean = false) {
+        if (operationBusy && !force) return
+        val git = cli ?: return
         val current = state ?: return
-        if (loading) return // 正在打开的那次会自己记下新的引用
-        val refs = withContext(Dispatchers.IO) { runCatching { current.repo.refsSnapshot() }.getOrNull() } ?: return
-        if (refs != refsSeen && state === current) {
-            refsSeen = refs
-            (current.repo.workTree ?: current.repo.repository.directory)?.let { open(it, quiet = true) }
+        try {
+            val snapshot = withContext(Dispatchers.IO) { Triple(git.status(), git.stashList(), git.currentOperation() to git.conflictSession()) }
+            if (state !== current || (operationBusy && !force)) return
+            working = snapshot.first
+            stashes = snapshot.second
+            operation = snapshot.third.first
+            val session = snapshot.third.second
+            if (session != draftSession || (operation == null && working.none { it.conflicted })) conflictDrafts.clear()
+            draftSession = session
+            workingReloads++
+            if (loading || force) return
+            val refs = withContext(Dispatchers.IO) { current.repo.refsSnapshot() }
+            if (refs != refsSeen && state === current && !operationBusy) {
+                (current.repo.workTree ?: current.repo.repository.directory)?.let { open(it, quiet = true) }
+            }
+        } catch (e: CancellationException) { throw e }
+        catch (e: Exception) {
+            if (state === current) net = NetStatus(t("Couldn't read repository state", "读取仓库状态失败"), e.message.orEmpty(), NetState.WARNING)
         }
     }
 
@@ -304,6 +381,8 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
     // 监听文件变化，有变化才读；只在窗口有焦点时读，切回窗口时马上读一次；监听不了时退回每 3 秒读一次
     val changes = remember(cli) { Channel<Unit>(Channel.CONFLATED) }
     var watching by remember(cli) { mutableStateOf<Boolean?>(null) } // null：还在启动监听
+    // 首次打开必须取得这个仓库的状态，不能依赖原生窗口是否已经收到焦点。
+    LaunchedEffect(cli, s?.repo) { if (cli != null) reloadWorking() }
     LaunchedEffect(cli) {
         val git = cli ?: return@LaunchedEffect
         var watcher: AutoCloseable? = null
@@ -359,12 +438,13 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
         operationBusy = true
         net = running
         scope.launch {
+            var succeeded = false
             try {
-                val result = withContext(Dispatchers.IO) { attemptGitOperation { git.op() } }
+                val result = withContext(Dispatchers.IO + NonCancellable) { git.coordinator.execute(OperationRequest(OperationKind.OTHER)) { git.op() } }
                 net = finish(result)
-                onCompleted(result.ok)
-                if (refreshHistory) open(dir)
-                reloadWorking()
+                succeeded = result.ok
+                reloadWorking(force = true)
+                if (refreshHistory) open(dir, internalRefresh = true)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -375,6 +455,7 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
             } finally {
                 operationBusy = false
             }
+            onCompleted(succeeded)
         }
     }
     val runLocal: OperationRunner = { running, done, op, completed ->
@@ -383,9 +464,11 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
     }
 
     fun runNet(op: NetOp) {
+        if (op == NetOp.PULL) { if (!operationBusy && !loading) pullDialog = true; return }
         val detail = workTree?.name.orEmpty()
         runOp(NetStatus(op.running, detail, NetState.RUNNING), { describe(op, it) }) {
             when (op) {
+                NetOp.FETCH -> fetch()
                 NetOp.PUSH -> push()
                 NetOp.PULL -> pull()
                 NetOp.ABORT -> abortOperation()
@@ -394,6 +477,7 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
     }
 
     val actions = GitActions(
+        preview = { if (!operationBusy && !loading) preview = it },
         ask = { dialog = it },
         run = { running, done, op ->
             runOp(NetStatus(running, "", NetState.RUNNING), { describeAction(running, done, it) }, op = op)
@@ -418,14 +502,16 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
     var search by remember { mutableStateOf<SearchResult?>(null) }
     val searchRepo = s?.repo
     val pathFilter = s?.history?.path
-    LaunchedEffect(searchRepo, query, pathFilter) {
+    val historyStarts = s?.history?.startIds
+    val branchFilter = s?.history?.query?.refs.orEmpty()
+    LaunchedEffect(searchRepo, query, pathFilter, historyStarts) {
         search = null
         val q = query.trim()
         if (searchRepo == null || q.isEmpty()) return@LaunchedEffect
         delay(300) // 打字时不要每个字都搜一遍
         val job = coroutineContext.job
         search = withContext(Dispatchers.IO) {
-            runCatching { searchRepo.searchCommits(q, path = pathFilter, cancelled = { !job.isActive }) }.getOrNull()
+            runCatching { searchRepo.searchCommits(q, path = pathFilter, cancelled = { !job.isActive }, startIds = historyStarts, refNames = s?.history?.refNames) }.getOrNull()
         }
     }
     val unloadedMatches = remember(search, s) { s?.let { st -> search?.ids?.filter { it !in st.indexById } } }
@@ -469,16 +555,20 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
     }
 
     /** 主图换成只看 path 的历史；path 为空时回到全部历史。选中的提交还在就继续选中它。 */
-    fun showHistoryOf(path: String?) {
-        if (state?.history?.path == path) return
+    fun showHistoryOf(path: String?, refs: Set<String> = state?.history?.query?.refs.orEmpty()) {
+        if (operationBusy) return
+        val requested = HistoryQuery(refs, path)
+        if (state?.history?.query == requested) return
         seeking?.job?.cancel()
+        val generation = ++openGeneration
+        loading = true
         scope.launch {
-            loading = true
             try {
                 historyLock.withLock {
+                    if (generation != openGeneration) return@withLock
                     val now = state ?: return@withLock
                     val next = withContext(Dispatchers.IO) {
-                        val pager = now.repo.openHistory(path)
+                        val pager = now.repo.openHistory(requested)
                         try {
                             val result = pager.load(GitRepo.PAGE_SIZE)
                             RepoState.create(now.repo, result, now.headId, pager)
@@ -487,8 +577,10 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                             throw e
                         }
                     }
+                    if (generation != openGeneration || state !== now) { next.history?.close(); return@withLock }
                     now.history?.close()
                     state = next
+                    historyError = null
                     val commits = next.result.commits
                     selected = commits.firstOrNull { it.id == selected?.id } ?: commits.firstOrNull()
                     scrollTarget = selected?.id
@@ -496,15 +588,15 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                net = NetStatus(t("Couldn't read file history", "读取文件历史失败"), e.message ?: e.toString(), NetState.FAILED)
+                if (generation == openGeneration) net = NetStatus(t("Couldn't read history", "读取历史失败"), e.message ?: e.toString(), NetState.FAILED)
             } finally {
-                loading = false
+                if (generation == openGeneration) loading = false
             }
         }
     }
 
     /** 选中并滚到 id；还没加载时先往下读，select 为 false 时只加载不选中。 */
-    fun jumpTo(id: String, select: Boolean = true) {
+    fun jumpTo(id: String, select: Boolean = true, direct: Boolean = false) {
         val current = s ?: return
         current.indexById[id]?.let { index ->
             if (select) { selected = current.result.commits[index]; scrollTarget = id }
@@ -514,25 +606,53 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
         val job = scope.launch(start = CoroutineStart.LAZY) {
             val me = coroutineContext.job
             try {
-                val found = loadMore(target = id)
-                val now = state
-                if (!found || now == null) {
-                    val path = now?.history?.path
-                    val why = if (path != null) t("Showing only the history of $path, and this commit doesn't touch it", "当前只看 $path 的历史，这个提交没有改动它") else t("It isn't in the history of any branch, remote branch or tag", "它不在任何分支、远程分支或标签的历史里")
-                    net = NetStatus(t("Can't find commit ${id.take(7)}", "找不到提交 ${id.take(7)}"), why, NetState.FAILED)
-                } else if (select) {
-                    now.indexById[id]?.let { selected = now.result.commits[it] }
-                    scrollTarget = id
+                val outsideBranches = if (current.history?.query?.refs?.isNotEmpty() == true) withContext(Dispatchers.IO) { !current.repo.isReachable(id, current.history.startIds) } else false
+                if (select && (direct || current.history?.path != null || outsideBranches)) {
+                    // A reflog object need not be reachable by the currently filtered pager.
+                    val commit = withContext(Dispatchers.IO) { current.repo.commit(id) }
+                    if (state?.repo === current.repo) { selected = commit; scrollTarget = id }
+                } else {
+                    val found = loadMore(target = id)
+                    val now = state
+                    if (select && now?.repo === current.repo) {
+                        val commit = if (found) now.result.commits[now.indexById.getValue(id)] else withContext(Dispatchers.IO) { now.repo.commit(id) }
+                        if (state?.repo === now.repo) { selected = commit; scrollTarget = id }
+                    }
                 }
-            } finally {
-                if (seeking?.job === me) seeking = null
-            }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                if (state?.repo === current.repo) net = NetStatus(t("Commit unavailable", "提交不可用"),
+                    t("The object may have been pruned. ${e.message}", "对象可能已被清理。${e.message}"), NetState.WARNING)
+            } finally { if (seeking?.job === me) seeking = null }
         }
         seeking = Seek(id, job)
         job.start()
     }
 
-    Row(Modifier.fillMaxSize()) {
+    LaunchedEffect(cli) { rootFocus.requestFocus() }
+    val commitDraft = remember(cli) { CommitDraft() }
+    val available = cli != null && !loading && !operationBusy
+    val registry = CommandRegistry(listOf(
+        AppCommand("search", t("Search history", "搜索历史"), s != null, "⌘/Ctrl F") { view = MainView.HISTORY; scope.launch { withFrameNanos { }; searchFocus.requestFocus() } },
+        AppCommand("refresh", t("Refresh repository", "刷新仓库"), s != null && !loading && !operationBusy, "⌘/Ctrl R") { (s?.repo?.workTree ?: s?.repo?.repository?.directory)?.let { open(it, reportSuccess = true) } },
+        AppCommand("changes", t("Local changes", "本地改动"), cli != null) { view = MainView.CHANGES },
+        AppCommand("commit", t("Commit staged changes", "提交暂存改动"), available && !inConflict && commitDraft.message.isNotBlank() && (commitDraft.amend || working.any { it.hasStaged }), "⌘/Ctrl Enter") {
+            runOp(NetStatus(t("Committing", "正在提交"), "", NetState.RUNNING), { describeAction(t("Committing", "正在提交"), t("Committed", "已提交"), it) }, onCompleted = { if (it) { commitDraft.message = ""; commitDraft.amend = false } }) { commit(commitDraft.message.trim(), commitDraft.amend) }
+        },
+        AppCommand("undo", t("Undo latest local operation", "撤销最近本地操作"), available && !inConflict, "⌘/Ctrl Z") { actions.run(t("Undoing", "正在撤销"), t("Undone", "已撤销")) { undo() } },
+        AppCommand("fetch", t("Fetch", "获取"), available && !inConflict) { runNet(NetOp.FETCH) },
+        AppCommand("pull", t("Pull…", "拉取…"), available && !inConflict) { runNet(NetOp.PULL) },
+        AppCommand("push", t("Push", "推送"), available && !inConflict) { runNet(NetOp.PUSH) },
+        AppCommand("stash", t("Stash changes…", "储藏改动…"), available && !inConflict && working.isNotEmpty()) { askStash(working.size, actions) },
+        AppCommand("continue", t("Continue Git operation", "继续 Git 操作"), available && operation != null && conflicted.isEmpty()) { actions.run(t("Continuing", "正在继续"), t("Continued", "已继续")) { continueOperation() } },
+        AppCommand("abort", t("Abort Git operation…", "中止 Git 操作…"), available && operation != null) { dialog = DialogSpec(t("Abort operation", "中止操作"), t("Discard the current conflict resolutions and abort?", "放弃当前冲突处理结果并中止？"), t("Abort", "中止"), danger = true) { _, _ -> runNet(NetOp.ABORT) } },
+        AppCommand("palette", t("Command palette", "命令面板"), true, "⌘/Ctrl Shift P") { paletteOpen = true },
+    ) + selected?.takeUnless { it.isStash }?.let { c -> commitMenu(c, c.id == s?.headId, currentBranch, actions).filterIsInstance<MenuItem>().mapIndexed { i, item -> AppCommand("selected-$i", item.label, available && !inConflict && item.enabled, action = item.action) } }.orEmpty())
+    val drag = remember(cli, operationBusy, loading, inConflict) { BranchDragState(cli != null && !operationBusy && !loading && !inConflict) { a, b -> branchDrop = a to b } }
+    CompositionLocalProvider(LocalBranchDrag provides drag, LocalTextFocus provides textFocus, LocalCommands provides registry) {
+    Row(Modifier.fillMaxSize().focusRequester(rootFocus).onPreviewKeyEvent { event ->
+        if (event.type != KeyEventType.KeyDown) false else shortcutCommand(event.key, if (isMac) event.isMetaPressed else event.isCtrlPressed, event.isShiftPressed, textFocus.editing)?.let { registry.execute(it) } ?: false
+    }.focusable()) {
         if (s != null) {
             // 侧边栏从窗口顶部铺下来，顶上一段留给红绿灯
             Column(Modifier.width(248.dp).fillMaxHeight().background(Palette.Rail)) {
@@ -543,6 +663,9 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                     }
                     WorkspaceItem(t("Changes", "本地改动"), Icons.Edit, view == MainView.CHANGES, working.size - conflicted.size) { view = MainView.CHANGES }
                     WorkspaceItem(t("All commits", "所有提交"), Icons.History, view == MainView.HISTORY, 0) { view = MainView.HISTORY }
+                    WorkspaceItem(t("Compare refs", "引用对比"), Icons.Branch, view == MainView.COMPARE, 0) { view = MainView.COMPARE }
+                    WorkspaceItem("Reflog", Icons.History, view == MainView.REFLOG, 0) { view = MainView.REFLOG }
+                    if (cli != null) WorkspaceItem(t("Recovery", "恢复记录"), Icons.History, view == MainView.RECOVERY, 0) { view = MainView.RECOVERY }
                     if (workTree != null) {
                         WorkspaceItem(t("Files", "文件"), Icons.Folder, view == MainView.FILES, 0) { view = MainView.FILES }
                     }
@@ -563,7 +686,14 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                     onBranchMenu = { ref ->
                         if (cli != null) {
                             menuAnchor = null
-                            menu = branchMenu(ref.label.name, ref.label.isCurrent, currentBranch, actions)
+                            val full = (if (ref.label.kind == RefKind.BRANCH) "refs/heads/" else "refs/remotes/") + ref.label.name
+                            menu = (if (ref.label.kind == RefKind.BRANCH) branchMenu(ref.label.name, ref.label.isCurrent, currentBranch, actions) + MenuSeparator else emptyList()) + listOf(
+                                MenuItem(t("Only this branch", "只看此分支")) { view = MainView.HISTORY; showHistoryOf(pathFilter, setOf(full)) },
+                                MenuItem(t("Include in branch filter", "加入分支过滤"), checked = full in branchFilter) {
+                                    view = MainView.HISTORY
+                                    showHistoryOf(pathFilter, if (full in branchFilter) branchFilter - full else branchFilter + full)
+                                },
+                            )
                         }
                     },
                     branchColors = s.branchColors,
@@ -597,27 +727,37 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                         menuAnchor = at
                         menu = repoMenu(workTree?.path, Settings.recentRepos, { open(File(it), reportSuccess = true) }, chooseAndOpen, ::askClone)
                     },
-                    onRefresh = { (s?.repo?.workTree ?: s?.repo?.repository?.directory)?.let { open(it, reportSuccess = true) } },
+                    onRefresh = { registry.execute("refresh") },
+                    searchFocus = searchFocus,
+                    onCommands = { menuAnchor = null; commandsMenuOpen = true },
+                    onSearchEscape = { query = ""; view = MainView.HISTORY; scope.launch { withFrameNanos { }; historyFocus.requestFocus() } },
                     netBusy = operationBusy,
-                    onPull = { runNet(NetOp.PULL) },
-                    onPush = { runNet(NetOp.PUSH) },
+                    onFetch = { registry.execute("fetch") },
+                    onPull = { registry.execute("pull") },
+                    onPush = { registry.execute("push") },
                     onNewBranch = { selected?.let { askNewBranch(it, actions) } },
                     canStash = working.isNotEmpty(),
                     onStash = {
-                        askStash(working.size, actions)
+                        registry.execute("stash")
                         view = MainView.STASH
                     },
                 )
             }
             HorizontalDivider()
             net?.let {
-                NetBanner(it, onAction = ::runNet, onDismiss = { if (net === it) net = null })
+                NetBanner(it, onAction = ::runNet, onDismiss = { if (net === it) net = null }, onUndo = if (cli != null && !operationBusy && !loading && it.state == NetState.DONE && it.recoveryId != null) ({ actions.run(t("Undoing", "正在撤销"), t("Undone", "已撤销")) { undo(it.recoveryId) } }) else null)
                 HorizontalDivider()
             }
             if (s == null) {
                 Welcome(loading, Settings.recentRepos, onRecent = { open(File(it), reportSuccess = true) }, onOpen = chooseAndOpen, onClone = ::askClone)
             } else {
-                if (view == MainView.SETTINGS) {
+                if (view == MainView.COMPARE) {
+                    ComparisonView(s.repo.workTree ?: s.repo.repository.directory, s.result.refs, { id -> view = MainView.HISTORY; jumpTo(id, direct = true) }, Modifier.fillMaxWidth().weight(1f))
+                } else if (view == MainView.REFLOG) {
+                    ReflogView(s.repo, actions, { id -> view = MainView.HISTORY; jumpTo(id, direct = true) }, Modifier.fillMaxWidth().weight(1f), operationBusy || loading || cli == null)
+                } else if (view == MainView.RECOVERY && cli != null) {
+                    RecoveryView(cli, actions, workingReloads, operationBusy || loading, Modifier.fillMaxWidth().weight(1f))
+                } else if (view == MainView.SETTINGS) {
                     SettingsView(cli, Modifier.fillMaxWidth().weight(1f))
                 } else if (view == MainView.CONFLICT && cli != null) {
                     ConflictView(
@@ -627,6 +767,12 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                         onRun = runLocal,
                         busy = operationBusy || loading,
                         modifier = Modifier.fillMaxWidth().weight(1f),
+                        revision = workingReloads,
+                        drafts = conflictDrafts,
+                        onSkip = { dialog = DialogSpec(t("Skip commit", "跳过提交"), t("Discard the current patch and its conflict resolutions?", "丢弃当前补丁及其冲突处理结果？"), t("Skip", "跳过"), danger = true) { _, _ ->
+                            actions.run(t("Skipping", "正在跳过"), t("Commit skipped", "已跳过提交")) { rebaseStep("--skip") }
+                        } },
+                        onKeepEmpty = { actions.run(t("Continuing", "正在继续"), t("Rebase continued", "变基已继续")) { keepEmptyRebaseCommit() } },
                     )
                 } else if (view == MainView.FILES && cli != null && workTree != null) {
                     FilesView(
@@ -656,6 +802,8 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                         onRun = runLocal,
                         busy = operationBusy || loading,
                         modifier = Modifier.fillMaxWidth().weight(1f),
+                        externalRevision = workingReloads,
+                        draft = commitDraft,
                         focus = changesFocus,
                         onFocused = { changesFocus = null },
                     )
@@ -671,6 +819,8 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                         loadingMore -> t("Loading earlier commits…", "正在加载更早的提交…")
                         else -> null
                     }
+                    historyError?.let { Text(t("History is outdated: $it", "历史已过期：$it"), color = Palette.Modified, modifier = Modifier.padding(12.dp)) }
+                    BranchFilterBar(s.result.refs, branchFilter, loading || operationBusy, { showHistoryOf(pathFilter, it) })
                     if (pathFilter != null) {
                         PathFilterBar(pathFilter, s.result, onClear = { showHistoryOf(null) })
                         HorizontalDivider()
@@ -683,6 +833,7 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
                                 s, shown, selected, commitListState, onSelect = { selected = it },
                                 Modifier.fillMaxSize(),
                                 bottomPadding = bottomPadding,
+                                focusRequester = historyFocus,
                                 sidebarHighlight = hoveredRef?.let { s.indexById[it.commitId] }?.let { s.rows[it].nodeTrack.line },
                                 onMenu = { c ->
                                     selected = c
@@ -720,8 +871,32 @@ fun FrameWindowScope.App(initialDir: File, reportInitialError: Boolean) {
             }
         }
     }
+    }
+    if (pullDialog && cli != null) PullDialog(cli, operationBusy || loading, onDismiss = { pullDialog = false },
+        onFetch = { remote -> actions.run(t("Fetching", "正在获取"), t("Fetched", "已获取")) { fetch(remote) } },
+        onPrepare = { settings ->
+            var prepared: OperationIntent? = null
+            runOp(NetStatus(t("Fetching", "正在获取"), "", NetState.RUNNING), { describeAction(t("Fetching", "正在获取"), t("Fetched; integration pending", "已获取，等待集成"), it) },
+                onCompleted = { if (it) preview = prepared }) { preparePull(settings).let { prepared = it.intent; it.result } }
+        })
+    if (commandsMenuOpen) GitMenuPopup(registry.menu(), onDismiss = { commandsMenuOpen = false })
+    if (paletteOpen) CommandPalette(registry) { paletteOpen = false }
+    branchDrop?.let { (a, b) ->
+        AlertDialog(onDismissRequest = { branchDrop = null }, title = { Text("${a.name} → ${b.name}") },
+            text = { Text(t("Choose the operation, then review its graph and file effects.", "选择操作，再预览图形与文件影响。")) },
+            confirmButton = { Row {
+                TextButton(enabled = b.kind == RefKind.BRANCH, onClick = { preview = branchDropIntent(a, b, PreviewKind.MERGE); branchDrop = null }) { Text(t("Merge ${a.name} into ${b.name}", "将 ${a.name} 合并进 ${b.name}")) }
+                TextButton(enabled = a.kind == RefKind.BRANCH, onClick = { preview = branchDropIntent(a, b, PreviewKind.REBASE); branchDrop = null }) { Text(t("Rebase ${a.name} onto ${b.name}", "将 ${a.name} 变基到 ${b.name}")) }
+            } }, dismissButton = { TextButton(onClick = { branchDrop = null }) { Text(t("Cancel", "取消")) } })
+    }
     menu?.let { GitMenuPopup(it, onDismiss = { menu = null }, anchor = menuAnchor) }
     dialog?.let { ActionDialog(it, onDismiss = { dialog = null }) }
+    if (cli != null && s != null) preview?.let { intent ->
+        PreviewDialog(cli, s.repo, intent, operationBusy || loading, onDismiss = { preview = null }) { plan ->
+            preview = null
+            actions.run(t("Executing operation", "正在执行操作"), t("Operation completed", "操作完成")) { executePlan(plan) }
+        }
+    }
 }
 
 /** 后台算好的一次过滤结果。indices 是 state 里的下标，换了 state 就不能直接用。 */
@@ -854,10 +1029,14 @@ internal fun Toolbar(
     onRefresh: () -> Unit,
     netBusy: Boolean,
     onPull: () -> Unit,
+    onFetch: () -> Unit = {},
     onPush: () -> Unit,
     onNewBranch: () -> Unit,
     canStash: Boolean,
     onStash: () -> Unit,
+    searchFocus: FocusRequester? = null,
+    onCommands: () -> Unit = {},
+    onSearchEscape: () -> Unit = {},
 ) {
     Row(
         Modifier.fillMaxWidth().height(TitleBarHeight).padding(start = start, end = 14.dp),
@@ -886,23 +1065,26 @@ internal fun Toolbar(
             Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                 ToolButton(t("Refresh", "刷新"), Icons.Refresh, enabled = !loading && !netBusy, onClick = onRefresh)
                 val canSync = !loading && !netBusy && state.repo.workTree != null
+                ToolButton(t("Fetch", "获取"), Icons.Pull, enabled = canSync, onClick = onFetch)
                 ToolButton(t("Pull", "拉取"), Icons.Pull, enabled = canSync, onClick = onPull)
                 ToolButton(t("Push", "推送"), Icons.Push, enabled = canSync, onClick = onPush)
                 ToolButton(t("New branch", "新建分支"), Icons.Branch, enabled = canSync, onClick = onNewBranch)
                 ToolButton(t("Stash", "储藏"), Icons.Stash, enabled = canSync && canStash, onClick = onStash)
             }
-            SearchField(query, onQuery)
+            ToolButton(t("Commands", "命令"), Icons.History, enabled = true, onClick = onCommands)
+            SearchField(query, onQuery, searchFocus, onSearchEscape)
         }
     }
 }
 
 @Composable
-private fun SearchField(value: String, onChange: (String) -> Unit) {
+internal fun SearchField(value: String, onChange: (String) -> Unit, focus: FocusRequester? = null, onEscape: () -> Unit = {}) {
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
     val shape = RoundedCornerShape(5.dp)
     BasicTextField(
         value, onChange, singleLine = true,
+        modifier = Modifier.textInputFocus().then(if (focus != null) Modifier.focusRequester(focus) else Modifier).onPreviewKeyEvent { e -> if (e.key == Key.Escape && e.type == KeyEventType.KeyDown) { onEscape(); true } else false },
         textStyle = TextStyle(color = Palette.Ink, fontSize = TypeScale.Body, fontFamily = UiFont),
         cursorBrush = SolidColor(Palette.Accent),
         interactionSource = interaction,
@@ -955,13 +1137,14 @@ private fun chooseDirectory(title: String, startDir: File? = null): File? {
     if (isMac) {
         // macOS 用系统的 NSOpenPanel：有侧边栏和搜索，跟随系统深色模式和语言
         System.setProperty("apple.awt.fileDialogForDirectories", "true")
+        val dialog = FileDialog(null as Frame?, title, FileDialog.LOAD)
         try {
-            val dialog = FileDialog(null as Frame?, title, FileDialog.LOAD)
             startDir?.takeIf { it.isDirectory }?.let { dialog.directory = it.path }
             dialog.isVisible = true
             val name = dialog.file ?: return null
             return File(dialog.directory, name)
         } finally {
+            dialog.dispose()
             System.clearProperty("apple.awt.fileDialogForDirectories")
         }
     }

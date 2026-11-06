@@ -78,7 +78,7 @@ internal fun CommitHistoryLayout(
         ) {
             val shape = RoundedCornerShape(12.dp * inset)
             Column(
-                Modifier.fillMaxWidth().height(height)
+                Modifier.fillMaxWidth().height(height).blockBranchDrop()
                     .shadow(16.dp, shape).clip(shape).background(Palette.Ground).border(1.dp, Palette.Line, shape)
                     // 空白处也接收指针，避免点击或滚轮穿透到被遮住的提交行。
                     .pointerInput(Unit) {

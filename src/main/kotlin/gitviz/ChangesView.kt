@@ -41,6 +41,8 @@ internal fun ChangesView(
     onRun: OperationRunner,
     modifier: Modifier,
     busy: Boolean = false,
+    externalRevision: Int = 0,
+    draft: CommitDraft = remember(cli) { CommitDraft() },
     /** 从别处（比如文件页）带过来、要选中的文件。选中后调用 onFocused。 */
     focus: String? = null,
     onFocused: () -> Unit = {},
@@ -90,7 +92,7 @@ internal fun ChangesView(
                 }
             }
             HorizontalDivider()
-            CommitBox(cli, branch, staged.size, !busy, onCommit = { message, amend, done ->
+            CommitBox(cli, branch, staged.size, !busy, draft, onCommit = { message, amend, done ->
                 apply(t("Committing", "正在提交"), t("Committed", "已提交"), historyChanged = true, op = { commit(message, amend) }, done = done)
             })
         }
@@ -110,9 +112,8 @@ internal fun ChangesView(
                 }
                 HorizontalDivider()
                 val content = Modifier.fillMaxWidth().weight(1f)
-                Loaded(Triple(current, currentFile, revision), content, { parseDiffLines(cli.diff(currentFile, current.staged)) }) { lines ->
-                    DiffBody(lines, mode, content)
-                }
+                PartialStageView(cli, currentFile, current.staged, revision + externalRevision, mode, busy,
+                    onApply = { document, selected -> apply(t("Updating selected changes", "正在更新选中改动"), t("Selected changes updated", "选中改动已更新"), op = { applySelection(document, selected) }) }, modifier = content)
             }
         }
     }
@@ -123,7 +124,7 @@ internal fun ChangesView(
             title = { Text(t("Discard changes", "丢弃改动"), fontSize = TypeScale.Title, fontWeight = FontWeight.SemiBold) },
             text = {
                 Text(
-                    if (f.untracked) t("“${f.path}” is a new file. It will be deleted and can't be recovered.", "「${f.path}」是新文件，会被删除，无法恢复。") else t("Unstaged changes to “${f.path}” will be discarded and can't be recovered.", "「${f.path}」未暂存的改动会被丢弃，无法恢复。"),
+                    if (f.untracked) t("“${f.path}” is a new file. It will be deleted after saving a recovery point.", "「${f.path}」是新文件，保存恢复点后将被删除。") else t("Unstaged changes to “${f.path}” will be discarded after saving a recovery point.", "「${f.path}」未暂存的改动会在保存恢复点后被丢弃。"),
                     fontSize = TypeScale.Body,
                 )
             },
@@ -184,14 +185,16 @@ private fun RowAction(label: String, color: Color, enabled: Boolean, onClick: ()
 }
 
 @Composable
-private fun CommitBox(cli: GitCli, branch: String?, stagedCount: Int, enabled: Boolean, onCommit: (String, Boolean, () -> Unit) -> Unit) {
+private fun CommitBox(cli: GitCli, branch: String?, stagedCount: Int, enabled: Boolean, draft: CommitDraft, onCommit: (String, Boolean, () -> Unit) -> Unit) {
     val scope = rememberCoroutineScope()
-    var message by remember(cli) { mutableStateOf("") }
-    var amend by remember(cli) { mutableStateOf(false) }
+    var message by draft::message
+    var amend by draft::amend
+    val registry = LocalCommands.current
     val canCommit = enabled && message.isNotBlank() && (amend || stagedCount > 0)
     val shape = RoundedCornerShape(5.dp)
     fun commit() {
         if (!canCommit) return
+        if (registry != null) { registry.execute("commit"); return }
         onCommit(message.trim(), amend) {
             message = ""
             amend = false
@@ -217,10 +220,10 @@ private fun CommitBox(cli: GitCli, branch: String?, stagedCount: Int, enabled: B
             message, { message = it }, enabled = enabled,
             textStyle = TextStyle(color = Palette.Ink, fontSize = TypeScale.Body, fontFamily = UiFont),
             cursorBrush = SolidColor(Palette.Accent),
-            modifier = Modifier.fillMaxWidth().height(110.dp)
+            modifier = Modifier.fillMaxWidth().height(110.dp).textInputFocus()
                 // Cmd+Enter 提交；不能提交时也吞掉这个按键，免得插进一个换行
                 .onPreviewKeyEvent { e ->
-                    if (e.key != Key.Enter || !e.isMetaPressed) return@onPreviewKeyEvent false
+                    if (e.key != Key.Enter || !(e.isMetaPressed || e.isCtrlPressed)) return@onPreviewKeyEvent false
                     if (e.type == KeyEventType.KeyDown) commit()
                     true
                 }

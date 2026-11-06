@@ -36,16 +36,23 @@ internal fun ConflictView(
     onRun: OperationRunner,
     busy: Boolean,
     modifier: Modifier,
+    revision: Int = 0,
+    drafts: MutableMap<String, ConflictDraft>? = null,
+    onSkip: () -> Unit = {},
+    onKeepEmpty: () -> Unit = {},
 ) {
+    val heldDrafts = drafts ?: remember(cli) { mutableStateMapOf<String, ConflictDraft>() }
     var selectedPath by remember(cli) { mutableStateOf<String?>(null) }
     var total by remember(cli, operation) { mutableStateOf(0) }
     total = maxOf(total, files.size)
     val current = files.firstOrNull { it.path == selectedPath } ?: files.firstOrNull()
 
-    fun apply(op: GitCli.() -> GitResult) {
-        onRun(t("Saving resolution", "正在保存冲突处理"), t("Resolution saved", "已保存冲突处理"), op) {}
+    var progress by remember(cli) { mutableStateOf<RebaseProgress?>(null) }
+    var progressError by remember(cli) { mutableStateOf<String?>(null) }
+    LaunchedEffect(cli, operation, revision) {
+        val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { cli.rebaseProgress() } }
+        result.onSuccess { progress = it; progressError = null }.onFailure { progress = null; progressError = it.message }
     }
-
     Column(modifier) {
         Row(
             Modifier.fillMaxWidth().height(44.dp).padding(horizontal = 18.dp),
@@ -55,11 +62,17 @@ internal fun ConflictView(
             Text(operation?.running ?: t("Conflicts", "有冲突"), fontSize = TypeScale.Heading, fontWeight = FontWeight.SemiBold)
             Text(t("Resolved ${total - files.size} / $total", "已解决 ${total - files.size} / $total"), fontSize = TypeScale.Small, color = Palette.Muted)
             Spacer(Modifier.weight(1f))
+            if (operation == GitOperation.REBASE) {
+                progress?.let { Text("${it.step ?: "?"} / ${it.total ?: "?"}", fontSize = TypeScale.Small) }
+                BarButton(t("Skip commit", "跳过提交"), !busy, false, onSkip)
+                if (progress?.canKeepEmpty == true) BarButton(t("Keep empty commit", "保留空提交"), !busy, false, onKeepEmpty)
+            }
             if (operation != null) {
                 BarButton(t("Abort", "放弃"), enabled = !busy, primary = false, onClick = onAbort)
                 BarButton(operation.finish, enabled = !busy && files.isEmpty(), primary = true, onClick = onFinish)
             }
         }
+        progressError?.let { Text(it, color = Palette.Modified, fontSize = TypeScale.Small, modifier = Modifier.padding(12.dp)) }
         HorizontalDivider()
         Row(Modifier.fillMaxWidth().weight(1f)) {
             ScrollList(Modifier.width(248.dp).fillMaxHeight().background(Palette.Rail)) {
@@ -78,21 +91,27 @@ internal fun ConflictView(
             VerticalDivider()
             val pane = Modifier.weight(1f).fillMaxHeight().background(Palette.Panel)
             if (current == null) {
-                Message(if (operation != null) t("All conflicts resolved. Click “${operation.finish}” to finish.", "冲突都解决了，点「${operation.finish}」结束") else t("All conflicts resolved", "冲突都解决了"), pane)
+                Message(if (operation == GitOperation.REBASE) t("Rebase paused. Continue with the staged result, keep an empty commit, skip, or abort.", "变基已暂停：使用暂存结果继续、保留空提交、跳过或中止。") else if (operation != null) t("All conflicts resolved. Click “${operation.finish}” to finish.", "冲突都解决了，点「${operation.finish}」结束") else t("All conflicts resolved", "冲突都解决了"), pane)
             } else {
-                Loaded(current, pane, { cli.readWorkingFile(current.path)?.let(::parseConflict) ?: Unparsed }) { content ->
-                    if (content is ConflictFile) {
-                        HunkPane(current.path, content, pane, !busy) { text -> apply { resolveFile(current.path, text) } }
-                    } else {
-                        WholeFilePane(current, pane, !busy) { ours -> apply { resolveWhole(current.path, ours) } }
-                    }
+                ConflictLoaded(cli, current.path, revision, pane) { sources ->
+                    val draft = heldDrafts.getOrPut(current.path) { ConflictDraft(sources) }
+                    ConflictEditor(sources, draft, busy, operation?.name == "REBASE",
+                        onReload = { heldDrafts[current.path] = ConflictDraft(sources) },
+                        onSave = { text ->
+                            onRun(t("Saving resolution", "正在保存冲突处理"), t("Resolution saved", "已保存冲突处理"), {
+                                resolveFile(current.path, text, sources.signature)
+                            }) { ok -> if (ok) heldDrafts.remove(current.path) }
+                        },
+                        onWhole = { ours ->
+                            onRun(t("Saving resolution", "正在保存冲突处理"), t("Resolution saved", "已保存冲突处理"), {
+                                resolveWhole(current.path, ours, sources.signature)
+                            }) { ok -> if (ok) heldDrafts.remove(current.path) }
+                        }, modifier = pane)
                 }
             }
         }
     }
 }
-
-private object Unparsed
 
 @Composable
 private fun BarButton(label: String, enabled: Boolean, primary: Boolean, onClick: () -> Unit) {
@@ -107,24 +126,9 @@ private fun BarButton(label: String, enabled: Boolean, primary: Boolean, onClick
     )
 }
 
-/** 删除对修改、二进制文件这些没有冲突标记的情况，只能整个文件选一边。 */
 @Composable
-private fun WholeFilePane(file: WorkingFile, modifier: Modifier, enabled: Boolean, onPick: (ours: Boolean) -> Unit) {
-    Box(modifier, contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(file.path, fontSize = TypeScale.Small, fontFamily = CodeFont, color = Palette.Muted)
-            Text(t("This file can't be merged hunk by hunk. Choose which side to keep.", "这个文件不能按块合并，选择保留哪一边的版本。"), fontSize = TypeScale.Body)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                BarButton(t("Use current", "用当前分支"), enabled = enabled, primary = false) { onPick(true) }
-                BarButton(t("Use incoming", "用传入分支"), enabled = enabled, primary = false) { onPick(false) }
-            }
-        }
-    }
-}
-
-@Composable
-private fun HunkPane(path: String, file: ConflictFile, modifier: Modifier, enabled: Boolean, onSave: (String) -> Unit) {
-    var choices by remember(path, file) { mutableStateOf(emptyMap<Int, Choice>()) }
+internal fun HunkPane(path: String, file: ConflictFile, modifier: Modifier, enabled: Boolean,
+    choices: Map<Int, Choice>, onChoices: (Map<Int, Choice>) -> Unit, oursLabel: String, theirsLabel: String, onSave: (String) -> Unit) {
     val hunkCount = file.hunks.size
     val indexed = remember(file) {
         var next = 0
@@ -136,16 +140,16 @@ private fun HunkPane(path: String, file: ConflictFile, modifier: Modifier, enabl
             Modifier.fillMaxWidth().height(30.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            ColumnTitle(t("Current ${file.oursLabel}", "当前 ${file.oursLabel}"), Palette.Link, Modifier.weight(1f))
+            ColumnTitle("$oursLabel · ${file.oursLabel}", Palette.Link, Modifier.weight(1f))
             ColumnTitle(t("Result", "合并结果"), Palette.Ink, Modifier.weight(1f))
-            ColumnTitle(t("Incoming ${file.theirsLabel}", "传入 ${file.theirsLabel}"), Palette.AccentInk, Modifier.weight(1f))
+            ColumnTitle("$theirsLabel · ${file.theirsLabel}", Palette.AccentInk, Modifier.weight(1f))
         }
         HorizontalDivider()
         LazyColumn(Modifier.fillMaxWidth().weight(1f), contentPadding = PaddingValues(vertical = 6.dp)) {
             itemsIndexed(indexed) { position, (part, hunkIndex) ->
                 when (part) {
                     is SameLines -> SameBlock(part.lines, isFirst = position == 0, isLast = position == indexed.lastIndex)
-                    is ConflictHunk -> HunkBlock(part, choices[hunkIndex]) { choices = choices + (hunkIndex to it) }
+                    is ConflictHunk -> HunkBlock(part, choices[hunkIndex], enabled, oursLabel, theirsLabel) { onChoices(choices + (hunkIndex to it)) }
                 }
             }
         }
@@ -190,7 +194,7 @@ private fun SameBlock(lines: List<String>, isFirst: Boolean, isLast: Boolean) {
 }
 
 @Composable
-private fun HunkBlock(hunk: ConflictHunk, choice: Choice?, onChoose: (Choice) -> Unit) {
+private fun HunkBlock(hunk: ConflictHunk, choice: Choice?, enabled: Boolean, oursLabel: String, theirsLabel: String, onChoose: (Choice) -> Unit) {
     Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
             CodeCell(hunk.ours, Palette.Link, Modifier.weight(1f))
@@ -208,8 +212,8 @@ private fun HunkBlock(hunk: ConflictHunk, choice: Choice?, onChoose: (Choice) ->
             horizontalArrangement = Arrangement.Center,
         ) {
             Segmented(
-                listOf(Choice.OURS to t("Use current", "用当前分支"), Choice.THEIRS to t("Use incoming", "用传入分支"), Choice.BOTH to t("Keep both", "两边都保留")),
-                choice, onSelect = { picked -> picked?.let(onChoose) },
+                listOf(Choice.OURS to oursLabel, Choice.THEIRS to theirsLabel, Choice.BOTH to t("Keep both", "两边都保留")),
+                choice, onSelect = { picked -> if (enabled) picked?.let(onChoose) },
             )
         }
     }
@@ -220,5 +224,20 @@ private fun CodeCell(lines: List<String>, color: Color, modifier: Modifier) {
     Column(modifier.fillMaxHeight().background(color.copy(alpha = 0.09f)).padding(start = 14.dp).clipToBounds()) {
         if (lines.isEmpty()) Text(t("(empty)", "（空）"), fontSize = TypeScale.Small, lineHeight = 18.sp, color = Palette.Faint)
         for (line in lines) CodeLine(line, color)
+    }
+}
+
+@Composable
+private fun ConflictLoaded(cli: GitCli, path: String, revision: Int, modifier: Modifier, content: @Composable (ConflictSources) -> Unit) {
+    var result by remember(cli, path) { mutableStateOf<Result<ConflictSources>?>(null) }
+    LaunchedEffect(cli, path, revision) {
+        val next = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { cli.conflictSources(path) } }
+        if (next.getOrNull()?.signature != result?.getOrNull()?.signature || next.isFailure) result = next
+    }
+    val value = result
+    when {
+        value == null -> Message(t("Reading conflict…", "正在读取冲突…"), modifier)
+        value.isFailure -> Message(value.exceptionOrNull()?.message.orEmpty(), modifier)
+        else -> content(value.getOrThrow())
     }
 }

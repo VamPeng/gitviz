@@ -1,9 +1,8 @@
 package gitviz
 
 import java.io.File
-import java.util.concurrent.TimeUnit
 
-enum class GitFailure { REJECTED, AUTH, CONFLICT, NOT_MERGED, OTHER }
+enum class GitFailure { REJECTED, AUTH, CONFLICT, NOT_MERGED, UNKNOWN, PAUSED, OTHER }
 
 enum class ResetMode(val flag: String) {
     SOFT("--soft"), MIXED("--mixed"), HARD("--hard");
@@ -17,12 +16,12 @@ enum class ResetMode(val flag: String) {
     val hint: String get() = when (this) {
         SOFT -> t("Undo commits, keep changes staged", "撤销提交，改动保留在暂存区")
         MIXED -> t("Undo commits, keep changes in the working tree", "撤销提交，改动保留在工作区")
-        HARD -> t("Undo commits and discard all changes. Can't be undone.", "撤销提交并丢弃所有改动，无法恢复")
+        HARD -> t("Move HEAD, index and working tree. Saved in a recovery point.", "移动 HEAD、暂存区和工作区；操作前保存恢复点")
     }
 }
 
 /** 一次网络操作的结果。failure 为 null 表示成功，output 是 git 的原始输出。 */
-data class GitResult(val failure: GitFailure?, val output: String) {
+data class GitResult(val failure: GitFailure?, val output: String, val recoveryId: String? = null) {
     val ok: Boolean get() = failure == null
 }
 
@@ -49,15 +48,17 @@ data class WorkingFile(val path: String, val oldPath: String?, val index: Char, 
 
 /** 进行到一半、等待解决冲突的操作。 */
 enum class GitOperation {
-    MERGE, CHERRY_PICK, REVERT;
+    MERGE, CHERRY_PICK, REVERT, REBASE;
 
     val running: String get() = when (this) {
+        REBASE -> t("Rebasing", "正在变基")
         MERGE -> t("Merging", "正在合并")
         CHERRY_PICK -> t("Cherry-picking", "正在Cherry-pick")
         REVERT -> t("Reverting", "正在回滚")
     }
 
     val finish: String get() = when (this) {
+        REBASE -> t("Continue rebase", "继续变基")
         MERGE -> t("Finish merge", "完成合并")
         CHERRY_PICK -> t("Finish cherry-pick", "完成Cherry-pick")
         REVERT -> t("Finish revert", "完成回滚")
@@ -140,7 +141,7 @@ internal fun classifyFailure(output: String): GitFailure = when {
  * 用系统的 git 做网络操作，SSH 配置、钥匙串和 credential helper 都沿用用户现有的。
  * 所有方法都会阻塞，请在 IO 线程调用。
  */
-class GitCli(private val workTree: File) {
+class GitCli(val workTree: File, private val isolated: Boolean = false) {
 
     /** 推送当前分支；没有上游时设到 origin，以后直接 git push 也能用。 */
     fun push(): GitResult {
@@ -150,7 +151,17 @@ class GitCli(private val workTree: File) {
         return if (hasUpstream) network("push") else network("push", "-u", "origin", branch)
     }
 
-    fun pull(): GitResult = network("pull", "--no-rebase", "--no-edit")
+    fun fetch(remote: String? = null): GitResult = if (remote == null) network("fetch") else {
+        if (remote != "." && remote !in read("remote").lines()) GitResult(GitFailure.OTHER, "Unknown remote") else network("fetch", "--", remote)
+    }
+
+    fun pull(): GitResult {
+        val fetched = network("fetch")
+        if (!fetched.ok) return fetched
+        val upstream = capture("rev-parse", "--verify", "@{upstream}")
+            ?: return GitResult(GitFailure.OTHER, t("Choose an upstream branch first", "请先选择上游分支"))
+        return merge(upstream)
+    }
 
     /** 把 url 克隆到当前目录下的 folder。 */
     fun clone(url: String, folder: String): GitResult = network("clone", "--", url, folder)
@@ -159,7 +170,8 @@ class GitCli(private val workTree: File) {
 
     fun status(): List<WorkingFile> {
         val (exit, output) = exec(listOf("--no-optional-locks", "status", "--porcelain", "-z", "--untracked-files=all"))
-        return if (exit == 0) parseStatus(output) else emptyList()
+        check(exit == 0) { output }
+        return parseStatus(output)
     }
 
     /**
@@ -168,7 +180,8 @@ class GitCli(private val workTree: File) {
      */
     fun treeStatus(): List<WorkingFile> {
         val (exit, output) = exec(listOf("--no-optional-locks", "status", "--porcelain", "-z", "--untracked-files=all", "--ignored=matching"))
-        return if (exit == 0) parseStatus(output) else emptyList()
+        check(exit == 0) { output }
+        return parseStatus(output)
     }
 
     fun stage(file: WorkingFile): GitResult = run("add", "--", literal(file.path))
@@ -184,9 +197,9 @@ class GitCli(private val workTree: File) {
 
     fun diff(file: WorkingFile, staged: Boolean): String {
         val args = when {
-            file.untracked -> listOf("diff", "--no-color", "--no-index", "--", "/dev/null", file.path)
-            staged -> listOf("diff", "--no-color", "--cached", "--", literal(file.path))
-            else -> listOf("diff", "--no-color", "--", literal(file.path))
+            file.untracked -> listOf("diff", "--no-color", "--no-ext-diff", "--no-textconv", "--no-index", "--", "/dev/null", file.path)
+            staged -> listOf("diff", "--no-color", "--no-ext-diff", "--no-textconv", "--cached", "--", literal(file.path))
+            else -> listOf("diff", "--no-color", "--no-ext-diff", "--no-textconv", "--", literal(file.path))
         }
         return exec(args).second.take(GitRepo.MAX_DIFF_CHARS)
     }
@@ -196,31 +209,37 @@ class GitCli(private val workTree: File) {
 
     fun lastCommitMessage(): String = capture("log", "-1", "--format=%B").orEmpty()
 
-    fun createBranch(name: String, commitId: String): GitResult = run("branch", name, commitId)
+    fun createBranch(name: String, commitId: String): GitResult = run("branch", "--", name, commitId)
 
     fun switchTo(branch: String): GitResult = run("switch", branch)
 
     /** 检出某个提交，进入分离 HEAD。 */
     fun checkout(commitId: String): GitResult = run("switch", "--detach", commitId)
 
-    fun renameBranch(from: String, to: String): GitResult = run("branch", "-m", from, to)
+    fun renameBranch(from: String, to: String): GitResult = run("branch", "-m", "--", from, to)
 
     /**
      * 默认只删已合并的分支，没合并的 git 会拒绝，提交不会丢。
      * force 为 true 时用 -D 强制删，没合并的提交之后只能从 reflog 找回。
      */
-    fun deleteBranch(name: String, force: Boolean = false): GitResult = run("branch", if (force) "-D" else "-d", name)
+    fun deleteBranch(name: String, force: Boolean = false): GitResult = run("branch", if (force) "-D" else "-d", "--", name)
 
-    fun tag(name: String, commitId: String): GitResult = run("tag", name, commitId)
+    fun tag(name: String, commitId: String): GitResult = run("tag", "--", name, commitId)
 
-    fun merge(ref: String): GitResult = run("merge", "--no-edit", ref)
+    fun merge(ref: String): GitResult = run("merge", "--no-edit", "--no-overwrite-ignore", "--no-autostash", ref)
 
     fun cherryPick(commit: CommitInfo): GitResult = run("cherry-pick", *mainlineFor(commit), commit.id)
 
-    fun revert(commit: CommitInfo): GitResult = run("revert", "--no-edit", *mainlineFor(commit), commit.id)
+    fun revert(commit: CommitInfo, mainline: Int = 1): GitResult = coordinator.execute(OperationRequest(OperationKind.REVERT, listOf("revert", commit.id), revisions = setOf(commit.id))) {
+        run("revert", "--no-edit", *mainlineFor(commit, mainline), commit.id)
+    }
 
     /** 合并提交有两个父提交，要指明相对哪一个，这里取第一个。 */
-    private fun mainlineFor(commit: CommitInfo) = if (commit.parents.size > 1) arrayOf("-m", "1") else emptyArray()
+    private fun mainlineFor(commit: CommitInfo, mainline: Int = 1): Array<String> {
+        val parents = read("rev-list", "--parents", "-n", "1", commit.id).trim().split(' ').drop(1)
+        require(parents.size <= 1 || mainline in 1..parents.size) { "Invalid mainline parent" }
+        return if (parents.size > 1) arrayOf("-m", mainline.toString()) else emptyArray()
+    }
 
     fun reset(commitId: String, mode: ResetMode): GitResult = run("reset", mode.flag, commitId)
 
@@ -235,7 +254,7 @@ class GitCli(private val workTree: File) {
         stashCache?.let { (k, list) -> if (k == key) return list }
         val format = listOf("%gd", "%H", "%ct", "%gs").joinToString("%x1f")
         val (exit, output) = exec(listOf("stash", "list", "--format=$format"))
-        if (exit != 0) return emptyList()
+        check(exit == 0) { output }
         return parseStashList(output).also { stashCache = key to it }
     }
 
@@ -277,7 +296,7 @@ class GitCli(private val workTree: File) {
 
     fun stashDiff(entry: StashEntry, file: StashFile): String {
         val range = if (file.untracked) listOf(EMPTY_TREE, "${entry.id}^3") else listOf("${entry.id}^1", entry.id)
-        return exec(listOf("diff", "--no-color") + range + listOf("--", literal(file.path))).second.take(GitRepo.MAX_DIFF_CHARS)
+        return exec(listOf("diff", "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames") + range + listOf("--", literal(file.path))).second.take(GitRepo.MAX_DIFF_CHARS)
     }
 
     fun applyStash(entry: StashEntry): GitResult = stashChange(entry, "apply")
@@ -285,24 +304,26 @@ class GitCli(private val workTree: File) {
     /** 应用并删除。有冲突时 git 会保留储藏。 */
     fun popStash(entry: StashEntry): GitResult = stashChange(entry, "pop")
 
-    fun dropStash(entry: StashEntry): GitResult = ifStillThere(entry) { run("stash", "drop", "-q", entry.ref) }
+    fun dropStash(entry: StashEntry): GitResult = ifStillThere(entry, "drop") { run("stash", "drop", "-q", entry.ref) }
 
-    private fun stashChange(entry: StashEntry, command: String) = ifStillThere(entry) {
+    private fun stashChange(entry: StashEntry, command: String) = ifStillThere(entry, command) {
         val result = run("stash", command, entry.ref)
         // 储藏没有 --abort，冲突的文件已经写进工作区，只能到本地改动里处理
         if (result.failure == GitFailure.CONFLICT) GitResult(GitFailure.OTHER, t("Conflicts. The files were written to the working tree and the stash was kept.", "有冲突，文件已写入工作区，储藏保留。")) else result
     }
 
     /** stash@{n} 的序号会变，动手前核对它还是用户选的那一条，不然可能删错。 */
-    private fun ifStillThere(entry: StashEntry, action: () -> GitResult): GitResult =
+    private fun ifStillThere(entry: StashEntry, command: String, action: () -> GitResult): GitResult = coordinator.execute(OperationRequest(OperationKind.STASH, listOf("stash", command, entry.ref), revisions = setOf(entry.id, "${entry.id}^3"))) {
         if (capture("rev-parse", "-q", "--verify", entry.ref) == entry.id) action()
         else GitResult(GitFailure.OTHER, t("The stash list changed. Please choose again.", "储藏列表已经变了，请重新选择"))
+    }
 
     private fun hasUntracked(entry: StashEntry) = capture("rev-parse", "-q", "--verify", "${entry.id}^3") != null
 
     fun currentOperation(): GitOperation? {
         val gitDir = gitDirs.own
         return when {
+            (gitDir.resolve("rebase-merge").isDirectory || gitDir.resolve("rebase-apply").isDirectory) -> GitOperation.REBASE
             gitDir.resolve("MERGE_HEAD").exists() -> GitOperation.MERGE
             gitDir.resolve("CHERRY_PICK_HEAD").exists() -> GitOperation.CHERRY_PICK
             gitDir.resolve("REVERT_HEAD").exists() -> GitOperation.REVERT
@@ -311,7 +332,22 @@ class GitCli(private val workTree: File) {
     }
 
     /** 放弃进行到一半的合并、cherry-pick 或回滚，回到操作之前。 */
-    fun abortOperation(): GitResult = when (currentOperation()) {
+    fun abortOperation(): GitResult = coordinator.execute(OperationRequest(OperationKind.OTHER)) {
+        val identity = operationIdentity()
+        val parent = recovery.records().firstOrNull { it.state == RecordState.CONFLICTED && it.after?.operation == identity }
+        coordinator.execute(OperationRequest(OperationKind.valueOf(currentOperation()?.name ?: "OTHER"), listOf("abort"))) {
+            val result = abortNativeOperation()
+            if (result.ok && parent?.label?.startsWith("switch ") == true) {
+                val head = parent.before.head
+                val args = if (head.startsWith("ref: refs/heads/")) listOf("switch", "--no-overwrite-ignore", head.removePrefix("ref: refs/heads/"))
+                    else listOf("switch", "--no-overwrite-ignore", "--detach", head)
+                val switched = raw(args).result()
+                if (switched.ok) result else switched.copy(output = t("Operation aborted; local changes prevent returning to the original branch. Review Changes or Recovery.\n", "操作已中止；本地改动阻止返回原分支，请查看本地改动或恢复记录。\n") + switched.output)
+            } else result
+        }.copy(recoveryId = null)
+    }
+    private fun abortNativeOperation(): GitResult = when (currentOperation()) {
+        GitOperation.REBASE -> rebaseStep("--abort")
         GitOperation.MERGE -> run("merge", "--abort")
         GitOperation.CHERRY_PICK -> run("cherry-pick", "--abort")
         GitOperation.REVERT -> run("revert", "--abort")
@@ -320,6 +356,7 @@ class GitCli(private val workTree: File) {
 
     /** 冲突都解决后完成操作。提交说明用 git 准备好的，不打开编辑器。 */
     fun continueOperation(): GitResult = when (currentOperation()) {
+        GitOperation.REBASE -> rebaseStep("--continue")
         GitOperation.MERGE -> run("commit", "--no-edit")
         GitOperation.CHERRY_PICK -> run("-c", "core.editor=true", "cherry-pick", "--continue")
         GitOperation.REVERT -> run("-c", "core.editor=true", "revert", "--continue")
@@ -330,15 +367,32 @@ class GitCli(private val workTree: File) {
     fun readWorkingFile(path: String): String? = workTree.resolve(path).takeIf { it.isFile }?.readText()
 
     /** 写入解决后的内容，并标记这个文件已解决。 */
-    fun resolveFile(path: String, content: String): GitResult {
-        workTree.resolve(path).writeText(content)
-        return run("add", "--", literal(path))
+    fun resolveFile(path: String, content: String, expectedSignature: String? = null): GitResult = coordinator.execute(OperationRequest(OperationKind.FILE, paths = setOf(path))) {
+        if (expectedSignature != null) check(conflictSources(path).let { it.signature == expectedSignature && it.stages.isNotEmpty() }) { t("Conflict inputs changed. Reload before saving.", "冲突输入已改变，请重新加载后保存。") }
+        val destination = safeWorkingPath(path)
+        check(!java.nio.file.Files.isSymbolicLink(destination)) { "Cannot text-edit a symbolic link" }
+        java.nio.file.Files.createDirectories(destination.parent)
+        val temporary = java.nio.file.Files.createTempFile(destination.parent, ".gitviz-resolution-", ".tmp")
+        try {
+            java.nio.file.Files.writeString(temporary, content)
+            if (java.nio.file.Files.exists(destination)) runCatching { java.nio.file.Files.setPosixFilePermissions(temporary, java.nio.file.Files.getPosixFilePermissions(destination)) }
+            check(safeWorkingPath(path) == destination)
+            java.nio.file.Files.move(temporary, destination, java.nio.file.StandardCopyOption.ATOMIC_MOVE, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+        } finally { java.nio.file.Files.deleteIfExists(temporary) }
+        run("add", "--", literal(path))
+    }
+
+    fun ignore(path: String, directory: Boolean): GitResult = coordinator.execute(OperationRequest(OperationKind.FILE, paths = setOf(".gitignore"))) {
+        appendToGitignore(workTree, path, directory)
+        GitResult(null, "")
     }
 
     /** 整个文件用某一边的版本。那一边已经删除这个文件时，就删除它。 */
-    fun resolveWhole(path: String, ours: Boolean): GitResult {
+    fun resolveWhole(path: String, ours: Boolean, expectedSignature: String? = null): GitResult = coordinator.execute(OperationRequest(OperationKind.FILE, paths = setOf(path))) {
+        if (expectedSignature != null) check(conflictSources(path).let { it.signature == expectedSignature && it.stages.isNotEmpty() }) { t("Conflict inputs changed. Reload before saving.", "冲突输入已改变，请重新加载后保存。") }
+        safeWorkingPath(path)
         val stage = if (ours) 2 else 3
-        return if (capture("rev-parse", "-q", "--verify", ":$stage:$path") != null) {
+        if (capture("rev-parse", "-q", "--verify", ":$stage:$path") != null) {
             val checkedOut = run("checkout", if (ours) "--ours" else "--theirs", "--", literal(path))
             if (checkedOut.ok) run("add", "--", literal(path)) else checkedOut
         } else {
@@ -356,39 +410,48 @@ class GitCli(private val workTree: File) {
         return output.trim().takeIf { exit == 0 && it.isNotEmpty() }
     }
 
-    private fun run(vararg args: String): GitResult = toResult(exec(args.toList()))
+    private val recoveryGitVersion by lazy {
+        val match = Regex("git version (\\d+)\\.(\\d+)").find(read("--version"))
+        match?.let { it.groupValues[1].toInt() to it.groupValues[2].toInt() }
+    }
+    internal fun requireRecoverySupport() {
+        val version = recoveryGitVersion
+        check(version != null && (version.first > 2 || version.first == 2 && version.second >= 50)) {
+            t("Git 2.50 or later is required for safe reference recovery. Upgrade Git before writing.", "安全引用恢复需要 Git 2.50 或更新版本，请升级 Git 后再执行写操作。")
+        }
+    }
+    internal val recovery by lazy { RecoveryStore(this) }
+    fun undo(id: String? = null): GitResult = coordinator.execute(OperationRequest(OperationKind.RESTORE)) {
+        val record = (if (id == null) recovery.latest() else recovery.records().firstOrNull { it.id == id }) ?: return@execute GitResult(GitFailure.OTHER, t("No operation to undo", "没有可撤销的操作"))
+        recovery.restore(record.id)
+    }
+    internal fun restorePoint(id: String, fingerprint: String? = null): GitResult = coordinator.execute(OperationRequest(OperationKind.RESTORE)) { recovery.restore(id, historical = true, expectedFingerprint = fingerprint) }
+    internal fun configureRecovery(days: Int, bytes: Long, clear: Boolean = false): GitResult = coordinator.execute(OperationRequest(OperationKind.RESTORE)) {
+        recovery.retentionDays = days; recovery.quotaBytes = bytes; recovery.cleanup(clear)
+        GitResult(null, "")
+    }
+    internal fun inspectPoint(id: String): GitResult = coordinator.execute(OperationRequest(OperationKind.RESTORE)) { recovery.inspect(id) }
+
+    internal val coordinator by lazy { OperationCoordinator(this) }
+    internal fun execute(request: OperationRequest): GitResult = coordinator.execute(request) {
+        raw(request.arguments, environment = if (request.network) Askpass.environment() else emptyMap(), timeout = if (request.network) NETWORK_TIMEOUT_SECONDS else TIMEOUT_SECONDS).result()
+    }
+    private fun run(vararg args: String): GitResult = execute(OperationRequest.command(args.toList()))
 
     /** 会连接远程的命令：可能要等用户输入，超时更长，也要接上系统的密码对话框。 */
-    private fun network(vararg args: String): GitResult = toResult(exec(args.toList(), NETWORK_TIMEOUT_SECONDS, Askpass.environment()))
+    private fun network(vararg args: String): GitResult = execute(OperationRequest.command(args.toList(), network = true))
 
-    private fun toResult(execution: Pair<Int, String>): GitResult {
-        val (exit, output) = execution
-        return GitResult(if (exit == 0) null else classifyFailure(output), output.trim())
-    }
+    internal fun raw(args: List<String>, input: ByteArray? = null, environment: Map<String, String> = emptyMap(), timeout: Long = TIMEOUT_SECONDS, preparedCheck: (() -> Unit)? = null): GitExecution =
+        GitProcess.execute(workTree, if (isolated) listOf("-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", "-c", "protocol.allow=never", "-c", "core.fsmonitor=false") + args else args, input, environment, timeout, isolated, preparedCheck)
+    internal fun read(vararg args: String): String = raw(args.toList()).requireSuccess().toString(Charsets.UTF_8)
+    internal fun bytes(vararg args: String): ByteArray = raw(args.toList()).requireSuccess()
+    internal val ownDirectory: File get() = gitDirs.own.canonicalFile
+    internal val commonDirectory: File get() = gitDirs.common.canonicalFile
 
-    private fun exec(
-        args: List<String>,
-        timeoutSeconds: Long = TIMEOUT_SECONDS,
-        extraEnvironment: Map<String, String> = emptyMap(),
-    ): Pair<Int, String> {
-        val process = ProcessBuilder(listOf("git") + args)
-            .directory(workTree)
-            .redirectErrorStream(true)
-            .redirectInput(ProcessBuilder.Redirect.from(File("/dev/null")))
-            .apply {
-                environment()["GIT_TERMINAL_PROMPT"] = "0" // 没有终端可以回答，不要卡在终端提示上
-                environment().putAll(extraEnvironment)
-            }
-            .start()
-        val output = StringBuilder()
-        // 原样读取，不能按行拼：-z 的输出用 NUL 分隔，多一个换行就成了多一个文件
-        val pump = Thread { output.append(process.inputStream.bufferedReader().readText()) }.apply { isDaemon = true; start() }
-        if (!process.waitFor(timeoutSeconds, TimeUnit.SECONDS)) {
-            process.destroyForcibly()
-            return 1 to t("git ran longer than $timeoutSeconds s and was stopped", "git 运行超过 $timeoutSeconds 秒，已停止")
-        }
-        pump.join()
-        return process.exitValue() to output.toString()
+    private fun exec(args: List<String>, timeoutSeconds: Long = TIMEOUT_SECONDS, extraEnvironment: Map<String, String> = emptyMap()): Pair<Int, String> {
+        val result = raw(args, environment = extraEnvironment, timeout = timeoutSeconds)
+        check(!result.uncertain) { result.output }
+        return result.exitCode to if (result.exitCode == 0) result.text else result.output
     }
 
     private companion object {

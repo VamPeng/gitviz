@@ -42,6 +42,8 @@ data class CommitInfo(
     val committer: String = author,
     val committerEmail: String = email,
     val commitTimeSeconds: Long = timeSeconds,
+    /** Display ancestry only; never use for a Git operation. */
+    val graphParents: List<String> = parents,
 ) {
     val shortId: String get() = id.take(8)
 
@@ -88,6 +90,8 @@ data class BlameLine(
     val commitId: String,
     val author: String,
     val timeSeconds: Long,
+    val sourcePath: String = "",
+    val sourceLine: Int = lineNo,
 )
 
 /**
@@ -119,11 +123,19 @@ internal fun matchesQuery(q: String, shortMessage: String, author: String, id: S
  *
  * 不是线程安全的，同一时间只能有一个线程调用。
  */
-class CommitPager internal constructor(private val repo: GitRepo, val path: String? = null) : AutoCloseable {
-    private val walk = repo.newHistoryWalk(path)
+internal class HistoryScopeException(message: String) : IllegalStateException(message)
+
+data class HistoryQuery(val refs: Set<String> = emptySet(), val path: String? = null, val text: String = "")
+
+class CommitPager internal constructor(private val repo: GitRepo, val query: HistoryQuery = HistoryQuery()) : AutoCloseable {
+    val path: String? get() = query.path
+    val startIds: List<String> = repo.historyRoots(query.refs)
+    private val walk = repo.newHistoryWalk(path, startIds)
+    private val originalWalk = if (path != null) RevWalk(repo.repository) else null
     // 只看某个文件时，储藏和这个文件的历史无关
     private val stashes = if (path == null) repo.stashCommits() else emptyList()
     private val labels = repo.collectRefLabels()
+    val refNames: Map<String, List<String>> = labels.mapValues { (_, refs) -> refs.map { it.name } }
     private val refs = labels.flatMap { (id, list) -> list.filter { it.kind != RefKind.HEAD }.map { RefTarget(it, id) } }
     private val currentBranch = repo.repository.branch
     private val walkOrder = ArrayList<CommitInfo>()
@@ -151,10 +163,12 @@ class CommitPager internal constructor(private val repo: GitRepo, val path: Stri
         var childOfLoaded = false
         repeat(count) {
             val c = next() ?: return@repeat
-            val info = with(repo) { c.toInfo(labels[c.name].orEmpty()) }
+            val original = originalWalk?.parseCommit(c.id) ?: c
+            val info = with(repo) { original.toInfo(labels[c.name].orEmpty()).copy(graphParents = c.parents.map { it.name }) }
+            if (original !== c) original.disposeBody()
             // 说明、作者都已经抄进 CommitInfo，RevWalk 里那份原始内容不再需要。大仓库里能省下近百 MB
             c.disposeBody()
-            if (info.parents.any { it in loadedIds }) childOfLoaded = true
+            if (info.graphParents.any { it in loadedIds }) childOfLoaded = true
             chunk += info
         }
         walkOrder += chunk
@@ -162,7 +176,7 @@ class CommitPager internal constructor(private val repo: GitRepo, val path: Stri
         // 刚好读满一页时还不知道后面有没有，先看一眼下一个，留到下一页
         if (pending == null && !exhausted) pending = walk.next().also { if (it == null) exhausted = true }
         // 储藏所基于的提交加载了，它才挂得上去
-        val newStashes = stashes.filter { it.id !in attached && it.parents.firstOrNull() in loadedIds }
+        val newStashes = stashes.filter { it.id !in attached && it.graphParents.firstOrNull() in loadedIds }
         val from = if (sorted.isEmpty() || childOfLoaded || newStashes.isNotEmpty()) {
             newStashes.mapTo(attached) { it.id }
             sorted.clear()
@@ -178,6 +192,7 @@ class CommitPager internal constructor(private val repo: GitRepo, val path: Stri
         if (closed) return
         closed = true
         walk.close()
+        originalWalk?.close()
         repo.forget(this)
     }
 }
@@ -195,23 +210,30 @@ class GitRepo private constructor(val repository: Repository) : AutoCloseable {
      * path 不为空时只读改动过这个文件的提交，父提交会改写成过滤后历史里最近的祖先，图才连得上。
      */
     fun openHistory(path: String? = null): CommitPager =
-        synchronized(pagers) { CommitPager(this, path).also { pagers += it } }
+        openHistory(HistoryQuery(path = path))
+
+    fun openHistory(query: HistoryQuery): CommitPager = synchronized(pagers) { CommitPager(this, query).also { pagers += it } }
 
     internal fun forget(pager: CommitPager) = synchronized(pagers) { pagers.remove(pager) }
 
     /** 一次读最多 limit 个提交。 */
     fun loadCommits(limit: Int = PAGE_SIZE): LoadResult = CommitPager(this).use { it.load(limit) }
 
-    /** 从所有分支、远程分支、标签和 HEAD 出发往回走，notes、stash 这类内部引用不算提交历史。 */
-    internal fun newHistoryWalk(path: String? = null): RevWalk {
+    internal fun historyRoots(refs: Set<String> = emptySet()): List<String> {
+        if (refs.isNotEmpty()) return refs.sorted().map { name ->
+            require(name.startsWith(Constants.R_HEADS) || name.startsWith(Constants.R_REMOTES)) { "Use a full branch reference: $name" }
+            repository.exactRef(name)?.objectId?.name ?: throw HistoryScopeException(t("Selected reference no longer exists: $name", "所选引用已不存在：$name"))
+        }.distinct()
+        return (repository.refDatabase.getRefsByPrefix(Constants.R_HEADS, Constants.R_REMOTES, Constants.R_TAGS)
+            .mapNotNull { it.objectId?.name } + listOfNotNull(repository.resolve(Constants.HEAD)?.name)).distinct()
+    }
+
+    /** A pager and its background search share these frozen starting object IDs. */
+    internal fun newHistoryWalk(path: String? = null, startIds: List<String>? = null): RevWalk {
         val walk = RevWalk(repository)
-        // 和 git log -- path 一样：只留改动过它的提交，并改写父提交。注意 JGit 改写父提交要先读完整个历史
         if (path != null) walk.setTreeFilter(AndTreeFilter.create(PathFilter.create(path), TreeFilter.ANY_DIFF))
-        // 不用 RevSort.TOPO：它会先读完整个历史才输出第一个提交，没法分页
         walk.sort(RevSort.COMMIT_TIME_DESC, true)
-        val starts = repository.refDatabase
-            .getRefsByPrefix(Constants.R_HEADS, Constants.R_REMOTES, Constants.R_TAGS)
-            .mapNotNull { it.objectId } + listOfNotNull(repository.resolve(Constants.HEAD))
+        val starts = (startIds ?: historyRoots()).map(ObjectId::fromString)
         for (id in starts.distinct()) {
             val commit = runCatching { walk.peel(walk.parseAny(id)) as? RevCommit }.getOrNull()
             if (commit != null) walk.markStart(commit)
@@ -228,19 +250,43 @@ class GitRepo private constructor(val repository: Repository) : AutoCloseable {
         limit: Int = MAX_SEARCH_RESULTS,
         path: String? = null,
         cancelled: () -> Boolean = { false },
+        startIds: List<String>? = null,
+        refNames: Map<String, List<String>>? = null,
     ): SearchResult {
         val q = query.trim()
         if (q.isEmpty()) return SearchResult(emptyList(), complete = true)
-        val refNames = collectRefLabels().mapValues { (_, labels) -> labels.map { it.name } }
+        val names = refNames ?: collectRefLabels().mapValues { (_, labels) -> labels.map { it.name } }
         val ids = ArrayList<String>()
-        newHistoryWalk(path).use { walk ->
+        newHistoryWalk(path, startIds).use { walk ->
             while (true) {
                 if (cancelled() || ids.size >= limit) return SearchResult(ids, complete = false)
                 val c = walk.next() ?: break
-                if (matchesQuery(q, c.shortMessage, c.authorIdent.name, c.name, refNames[c.name].orEmpty())) ids += c.name
+                if (matchesQuery(q, c.shortMessage, c.authorIdent.name, c.name, names[c.name].orEmpty())) ids += c.name
             }
         }
         return SearchResult(ids, complete = true)
+    }
+
+    fun isReachable(id: String, starts: List<String>): Boolean = starts.any { start ->
+        RevWalk(repository).use { walk ->
+            val target = walk.parseCommit(ObjectId.fromString(id))
+            val tip = walk.peel(walk.parseAny(ObjectId.fromString(start))) as? RevCommit ?: return@use false
+            walk.isMergedInto(target, tip)
+        }
+    }
+
+    /** Read by object ID, including commits no longer reachable from a branch. */
+    fun commit(id: String): CommitInfo = RevWalk(repository).use { walk ->
+        walk.parseCommit(ObjectId.fromString(id)).toInfo(collectRefLabels()[id].orEmpty())
+    }
+
+    internal fun reflog(ref: String = "HEAD", limit: Int = 200): ReflogPage {
+        require(ref == "HEAD" || ref.startsWith("refs/")) { "Expected a full reference name" }
+        require(limit > 0)
+        val entries = repository.getReflogReader(ref)?.getReverseEntries(limit + 1).orEmpty()
+        return ReflogPage(entries.take(limit).map { e ->
+            ReflogEntry(ref, e.oldId.name, e.newId.name, e.comment, e.who.name, e.who.whenAsInstant.epochSecond)
+        }, entries.size > limit)
     }
 
     /** 和第 parentIndex 个父提交比较的改动。合并提交可以选和哪个父提交比；根提交和空树比。 */
@@ -251,31 +297,43 @@ class GitRepo private constructor(val repository: Repository) : AutoCloseable {
                 t("Commit ${commit.name.take(7)} has no parent #${parentIndex + 1}", "提交 ${commit.name.take(7)} 没有第 ${parentIndex + 1} 个父提交")
             }
             val oldTree: RevTree? = if (commit.parentCount > 0) walk.parseCommit(commit.getParent(parentIndex)).tree else null
-            DiffFormatter(DisabledOutputStream.INSTANCE).use { df ->
-                df.setRepository(repository)
-                df.setDiffComparator(RawTextComparator.DEFAULT)
-                df.isDetectRenames = true
-                return df.scan(oldTree, commit.tree).map {
-                    val edits = df.toFileHeader(it).toEditList()
-                    FileChange(it.changeType, it.oldPath, it.newPath, edits.sumOf { e -> e.lengthB }, edits.sumOf { e -> e.lengthA }, it)
-                }
-            }
+            return changesBetweenTrees(oldTree, commit.tree)
         }
     }
 
+    fun changesBetween(oldId: String?, newId: String): List<FileChange> = RevWalk(repository).use { walk ->
+        changesBetweenTrees(oldId?.let { walk.parseTree(repository.resolve("$it^{tree}")) }, walk.parseTree(repository.resolve("$newId^{tree}")))
+    }
+
+    private fun changesBetweenTrees(oldTree: RevTree?, newTree: RevTree): List<FileChange> =
+        DiffFormatter(DisabledOutputStream.INSTANCE).use { df ->
+            df.setRepository(repository)
+            df.setDiffComparator(RawTextComparator.DEFAULT)
+            df.isDetectRenames = true
+            df.renameDetector.renameScore = 50
+            df.scan(oldTree, newTree).map {
+                val edits = df.toFileHeader(it).toEditList()
+                FileChange(it.changeType, it.oldPath, it.newPath, edits.sumOf { e -> e.lengthB }, edits.sumOf { e -> e.lengthA }, it)
+            }
+        }
+
     /** 从 commitId 往回，改动过 path 的提交，最新的在前。 */
     fun fileHistory(commitId: String, path: String, limit: Int = MAX_FILE_HISTORY): List<CommitInfo> =
-        Git(repository).log().add(ObjectId.fromString(commitId)).addPath(path).setMaxCount(limit).call()
-            .map { it.toInfo(emptyList()) }
+        RevWalk(repository).use { original ->
+            Git(repository).log().add(ObjectId.fromString(commitId)).addPath(path).setMaxCount(limit).call()
+                .map { c -> original.parseCommit(c.id).let { raw -> raw.toInfo(emptyList()).also { raw.disposeBody() } } }
+        }
 
     /** commitId 时 path 的每一行最后是谁改的。二进制文件没有行，返回空列表。 */
-    fun blame(commitId: String, path: String): List<BlameLine> {
-        val result = Git(repository).blame().setStartCommit(ObjectId.fromString(commitId)).setFilePath(path).call()
-            ?: return emptyList()
+    fun blame(commitId: String, path: String): List<BlameLine> = org.eclipse.jgit.blame.BlameGenerator(repository, path).use { generator ->
+        generator.setFollowFileRenames(true)
+        generator.renameDetector.renameScore = 50
+        generator.push(null, ObjectId.fromString(commitId))
+        val result = generator.computeBlameResult() ?: return@use emptyList()
         val contents = result.resultContents
-        return (0 until contents.size()).map { i ->
+        (0 until contents.size()).map { i ->
             val source = result.getSourceCommit(i)
-            BlameLine(i + 1, contents.getString(i), source.name, source.authorIdent.name, source.authorIdent.whenAsInstant.epochSecond)
+            BlameLine(i + 1, contents.getString(i), source.name, source.authorIdent.name, source.authorIdent.whenAsInstant.epochSecond, result.getSourcePath(i), result.getSourceLine(i) + 1)
         }
     }
 
@@ -301,7 +359,7 @@ class GitRepo private constructor(val repository: Repository) : AutoCloseable {
             // 说明形如 “WIP on main: abc1234 消息” 或 “On main: 消息”，去掉前缀
             val message = c.shortMessage.substringAfter(": ", c.shortMessage)
             c.toInfo(listOf(RefLabel("stash@{$i}", RefKind.STASH)))
-                .copy(parents = listOfNotNull(c.parents.firstOrNull()?.name), shortMessage = message)
+                .copy(graphParents = listOfNotNull(c.parents.firstOrNull()?.name), shortMessage = message)
         }
     }.getOrDefault(emptyList())
 

@@ -55,13 +55,13 @@ internal class ChangeFilter(gitDirs: List<String>) {
         for (dir in gitDirs) {
             if (p != dir && !p.startsWith("$dir/")) continue
             val first = p.removePrefix(dir).trimStart('/').substringBefore('/')
-            return first !in IgnoredInGitDir
+            return first !in IgnoredInGitDir && !first.startsWith("gitviz-restore-") && !first.startsWith("gitviz-config-")
         }
         return true
     }
 
     private companion object {
-        val IgnoredInGitDir = setOf("objects", "logs", "lfs", "hooks", "modules", "worktrees")
+        val IgnoredInGitDir = setOf("objects", "logs", "lfs", "hooks", "modules", "worktrees", "gitviz-recovery", "gitviz-operation.lock")
     }
 }
 

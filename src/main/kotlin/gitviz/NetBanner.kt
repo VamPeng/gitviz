@@ -28,15 +28,17 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 enum class NetOp {
-    PULL, PUSH, ABORT;
+    FETCH, PULL, PUSH, ABORT;
 
     val running: String get() = when (this) {
+        FETCH -> t("Fetching", "正在获取")
         PULL -> t("Pulling", "正在拉取")
         PUSH -> t("Pushing", "正在推送")
         ABORT -> t("Aborting", "正在放弃")
     }
 
     val done: String get() = when (this) {
+        FETCH -> t("Fetched", "已获取")
         PULL -> t("Pulled", "已拉取")
         PUSH -> t("Pushed", "已推送")
         ABORT -> t("Aborted; back to where you were", "已放弃，回到操作之前")
@@ -62,6 +64,7 @@ data class NetStatus(
     val nextLabel: String = "",
     val output: String = "",
     val id: Long = statusIds.incrementAndGet(),
+    val recoveryId: String? = null,
 )
 
 internal fun describe(op: NetOp, result: GitResult): NetStatus {
@@ -74,26 +77,30 @@ internal fun describe(op: NetOp, result: GitResult): NetStatus {
             NetStatus(t("Authentication failed", "身份验证失败"), t("Authentication failed. Check your SSH key and ssh-agent, or your access token.", "验证失败。检查 SSH 密钥和 ssh-agent，或访问令牌。"), NetState.FAILED, op, t("Retry", "重试"))
         GitFailure.CONFLICT ->
             NetStatus(t("Conflicts while pulling", "拉取时有冲突"), ConflictHint, NetState.WARNING, NetOp.ABORT, t("Abort", "放弃"))
+        GitFailure.PAUSED -> NetStatus(t("Rebase paused", "变基已暂停"), result.output, NetState.WARNING)
+        GitFailure.UNKNOWN -> NetStatus(t("Check repository state", "请核对仓库状态"), result.output, NetState.WARNING)
         GitFailure.NOT_MERGED, GitFailure.OTHER ->
             NetStatus(failedTitle(op.running), errorSummary(result.output), NetState.FAILED, op, t("Retry", "重试"))
-    }).copy(output = result.output)
+    }).copy(output = result.output, recoveryId = result.recoveryId)
 }
 
 /** 分支、合并这些本地操作的结果。running 形如「正在合并」。 */
 internal fun describeAction(running: String, done: String, result: GitResult): NetStatus = (when (result.failure) {
     null -> NetStatus(done, result.output.lineSequence().lastOrNull { it.isNotBlank() }.orEmpty(), NetState.DONE)
     GitFailure.CONFLICT -> NetStatus(t("Conflicts", "有冲突"), ConflictHint, NetState.WARNING, NetOp.ABORT, t("Abort", "放弃"))
+    GitFailure.PAUSED -> NetStatus(t("Rebase paused", "变基已暂停"), result.output, NetState.WARNING)
+        GitFailure.UNKNOWN -> NetStatus(t("Check repository state", "请核对仓库状态"), result.output, NetState.WARNING)
     GitFailure.NOT_MERGED -> NetStatus(
         t("Not deleted", "没有删除"),
         t("This branch has commits that aren't merged anywhere else, and deleting it would lose them. If you're sure, right-click the branch and choose “Force delete…”.", "这个分支有还没合并到别处的提交，删除会丢掉它们。确定不要了，右键分支选「强制删除…」。"),
         NetState.WARNING,
     )
     else -> NetStatus(failedTitle(running), errorSummary(result.output), NetState.FAILED)
-}).copy(output = result.output)
+}).copy(output = result.output, recoveryId = result.recoveryId)
 
 /** 成功提示可自动收起；悬停或阅读详情时保留，警告和错误始终等待用户处理。 */
 @Composable
-internal fun NetBanner(status: NetStatus, onAction: (NetOp) -> Unit, onDismiss: () -> Unit) {
+internal fun NetBanner(status: NetStatus, onAction: (NetOp) -> Unit, onDismiss: () -> Unit, onUndo: (() -> Unit)? = null) {
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
     var expanded by remember(status) { mutableStateOf(false) }
@@ -130,6 +137,7 @@ internal fun NetBanner(status: NetStatus, onAction: (NetOp) -> Unit, onDismiss: 
                 if (status.detail.isNotBlank()) Text(status.detail, fontSize = TypeScale.Small, color = Palette.Muted,
                     maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
+            if (onUndo != null) BannerButton(t("Undo local change", "撤销本地改动"), onUndo)
             status.next?.let { op -> BannerButton(status.nextLabel) { onAction(op) } }
             if (!running) BannerButton(t("Close", "关闭"), onDismiss)
         }
