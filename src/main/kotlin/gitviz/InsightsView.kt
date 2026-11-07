@@ -1,15 +1,22 @@
 package gitviz
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.TooltipArea
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -96,7 +103,7 @@ import java.util.concurrent.atomic.AtomicLong
 }
 
 @Composable private fun ActivityRow(label: String, count: Long, maximum: Long) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+    Row(Modifier.fillMaxWidth().hoverRow().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(label, modifier = Modifier.weight(1f), fontSize = TypeScale.Body)
         Box(Modifier.width(150.dp).height(5.dp).background(Palette.Line)) {
             Box(Modifier.fillMaxWidth((count.toFloat() / maximum).coerceIn(0f, 1f)).fillMaxHeight().background(Palette.Accent))
@@ -105,30 +112,52 @@ import java.util.concurrent.atomic.AtomicLong
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class, ExperimentalComposeUiApi::class)
 @Composable private fun ActivityHeatmap(data: RepositoryInsights, year: Int) {
+    var hoveredDate by remember(data, year) { mutableStateOf<LocalDate?>(null) }
     val start = LocalDate.of(year, 1, 1)
     val monday = start.minusDays(start.dayOfWeek.value.toLong() - 1)
     val end = LocalDate.of(year, 12, 31)
     val weeks = ((java.time.temporal.ChronoUnit.DAYS.between(monday, end) + 7) / 7).toInt()
     val maximum = data.days.filterKeys { it.year == year }.values.maxOrNull() ?: 1L
-    Row(Modifier.horizontalScroll(rememberScrollState()).padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Spacer(Modifier.height(18.dp))
-            repeat(7) { day -> Text(if (day % 2 == 0) t(listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")[day], listOf("一", "二", "三", "四", "五", "六", "日")[day]) else "", fontSize = TypeScale.Caption, color = Palette.Muted, modifier = Modifier.width(32.dp).height(11.dp)) }
-        }
-        repeat(weeks) { week -> Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            val weekStart = monday.plusDays(week * 7L)
-            val month = (0L..6L).map(weekStart::plusDays).firstOrNull { it.dayOfMonth == 1 && it.year == year }?.monthValue
-            Text(month?.toString().orEmpty(), fontSize = 9.sp, softWrap = false, color = Palette.Muted, modifier = Modifier.width(11.dp).height(18.dp))
-            repeat(7) { weekday ->
-                val date = monday.plusDays((week * 7 + weekday).toLong())
+    val scroll = rememberScrollState()
+    LaunchedEffect(scroll.value) { hoveredDate = null }
+    // 跨日期复用同一个即时提示，不为每个格子重新等待。
+    TooltipArea(
+        delayMillis = 0,
+        tooltip = {
+            hoveredDate?.let { date ->
                 val inRange = date.year == year && date <= data.through && (data.from == null || date >= data.from)
-                val count = data.days[date] ?: 0L
-                val color = when { !inRange -> Palette.Ground; count == 0L -> Palette.Line; else -> Palette.Accent.copy(alpha = 0.25f + 0.75f * count.toFloat() / maximum) }
-                Hint(if (inRange) "$date · $count " + t("commits", "个提交") else "$date · " + t("outside range", "范围外")) {
-                    Box(Modifier.size(11.dp).background(color))
-                }
+                val text = if (inRange) "$date · ${data.days[date] ?: 0L} " + t("commits", "个提交")
+                    else "$date · " + t("outside range", "范围外")
+                val shape = RoundedCornerShape(4.dp)
+                Text(text, fontSize = TypeScale.Caption, color = Palette.Ink,
+                    modifier = Modifier.background(Palette.Field, shape).border(1.dp, Palette.Line, shape)
+                        .padding(horizontal = 8.dp, vertical = 4.dp))
             }
-        } }
+        },
+        modifier = Modifier.onPointerEvent(PointerEventType.Exit) { hoveredDate = null },
+    ) {
+        Row(Modifier.horizontalScroll(scroll).padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Spacer(Modifier.height(18.dp))
+                repeat(7) { day -> Text(if (day % 2 == 0) t(listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")[day], listOf("一", "二", "三", "四", "五", "六", "日")[day]) else "", fontSize = TypeScale.Caption, color = Palette.Muted, modifier = Modifier.width(32.dp).height(11.dp)) }
+            }
+            repeat(weeks) { week -> Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                val weekStart = monday.plusDays(week * 7L)
+                val month = (0L..6L).map(weekStart::plusDays).firstOrNull { it.dayOfMonth == 1 && it.year == year }?.monthValue
+                Text(month?.toString().orEmpty(), fontSize = 9.sp, softWrap = false, color = Palette.Muted, modifier = Modifier.width(11.dp).height(18.dp))
+                repeat(7) { weekday ->
+                    val date = monday.plusDays((week * 7 + weekday).toLong())
+                    val inRange = date.year == year && date <= data.through && (data.from == null || date >= data.from)
+                    val count = data.days[date] ?: 0L
+                    val color = when { !inRange -> Palette.Ground; count == 0L -> Palette.Line; else -> Palette.Accent.copy(alpha = 0.25f + 0.75f * count.toFloat() / maximum) }
+                    Box(Modifier.size(11.dp).background(color)
+                        .onPointerEvent(PointerEventType.Enter) { hoveredDate = date }
+                        .onPointerEvent(PointerEventType.Move) { hoveredDate = date }
+                        .onPointerEvent(PointerEventType.Exit) { if (hoveredDate == date) hoveredDate = null })
+                }
+            } }
+        }
     }
 }
