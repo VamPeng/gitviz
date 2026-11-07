@@ -1,0 +1,412 @@
+<!doctype html>
+<!--
+  GitViz 介绍页（自包含，无外部请求）。
+  发布前只需要改下面 <html> 上的两个属性：
+    data-download  安装包的完整地址。留空时所有下载按钮显示「Coming soon / 即将上线」且不可点击。
+    data-version   页面上显示的版本号。
+-->
+<html lang="en" data-download="" data-version="1.0.0">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>GitViz — Product Introduction</title>
+<meta id="meta-desc" name="description" content="GitViz is a free Git client for Mac. See your history as a clear graph and preview merges, rebases and resets before they touch your repository.">
+<link rel="icon" type="image/svg+xml" href="img/icon.svg">
+<style>
+:root{
+  color-scheme:light;
+  --paper:#ffffff; --panel:#f7f7f6; --ink:#332d23; --muted:#6b655a; --line:#e6e2dc;
+  --primary:#ffb000; --on-primary:#332d23; --link:#8f5400; --wash:#fff1cc;
+  --shadow:0 24px 60px -32px rgba(51,45,35,.45);
+  --serif:Georgia,"Iowan Old Style","Songti SC","Noto Serif SC","Source Han Serif SC",serif;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --paper:#1b1b1b; --panel:#232323; --ink:#eae8e3; --muted:#a8a49b; --line:#3a3a3a;
+    --link:#ffb000; --wash:#3a2d0c; --shadow:0 24px 60px -32px rgba(0,0,0,.9);
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --paper:#1b1b1b; --panel:#232323; --ink:#eae8e3; --muted:#a8a49b; --line:#3a3a3a;
+  --link:#ffb000; --wash:#3a2d0c; --shadow:0 24px 60px -32px rgba(0,0,0,.9);
+}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:72px}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.65 var(--sans);-webkit-font-smoothing:antialiased}
+img{max-width:100%;height:auto;display:block}
+a{color:var(--link)}
+:focus-visible{outline:2px solid var(--link);outline-offset:3px;border-radius:4px}
+.wrap{max-width:1120px;margin:0 auto;padding:0 16px}
+@media (min-width:720px){.wrap{padding:0 32px}}
+.skip{position:absolute;left:16px;top:-60px;background:var(--ink);color:var(--paper);padding:8px 14px;border-radius:8px;z-index:20}
+.skip:focus{top:12px}
+
+/* header */
+header.top{position:sticky;top:0;z-index:10;background:color-mix(in srgb,var(--paper) 88%,transparent);backdrop-filter:saturate(1.4) blur(12px);border-bottom:1px solid transparent}
+header.top.scrolled{border-bottom-color:var(--line)}
+.bar{display:flex;align-items:center;gap:20px;height:60px}
+.brand{display:flex;align-items:center;gap:10px;color:var(--ink);text-decoration:none;font-weight:700;font-size:18px;letter-spacing:-.01em;margin-right:auto}
+.brand img{width:30px;height:30px}
+nav.links{display:none;gap:22px}
+nav.links a{color:var(--muted);text-decoration:none;font-size:14px}
+nav.links a:hover{color:var(--ink)}
+@media (min-width:720px){nav.links{display:flex}}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:999px;padding:2px;background:var(--panel)}
+.seg{flex:none}
+.seg button{font:inherit;font-size:13px;color:var(--muted);background:none;border:0;border-radius:999px;padding:3px 12px;cursor:pointer;min-height:28px;white-space:nowrap}
+.seg button[aria-pressed="true"]{background:var(--paper);color:var(--ink);box-shadow:0 0 0 1px var(--line)}
+
+/* buttons */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:48px;padding:0 24px;border-radius:12px;font-weight:600;font-size:16px;text-decoration:none;border:1px solid var(--line);color:var(--ink);background:var(--paper)}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--primary);border-color:var(--primary);color:var(--on-primary)}
+.btn.primary:hover{filter:brightness(1.05)}
+.btn{white-space:nowrap}
+.btn.sm{min-height:36px;padding:0 16px;font-size:14px;border-radius:10px}
+@media (max-width:719px){header.top .btn.sm{display:none}}
+html:not([data-ready]) .when-ready,html[data-ready="0"] .when-ready{display:none}
+html[data-ready="1"] .when-soon{display:none}
+.btn[aria-disabled="true"]{opacity:.62;cursor:not-allowed;filter:none}
+
+/* hero */
+.hero{padding:56px 0 24px}
+@media (min-width:720px){.hero{padding:96px 0 40px}}
+h1{font-family:var(--serif);font-weight:700;font-size:clamp(2.5rem,7vw,4.6rem);line-height:1.08;letter-spacing:-.02em;margin:0 0 20px;max-width:15ch}
+.dot{color:var(--primary)}
+.lead{font-size:clamp(1.05rem,2.2vw,1.25rem);color:var(--muted);max-width:42em;margin:0 0 32px}
+.cta{display:flex;flex-wrap:wrap;gap:12px}
+.meta{margin:18px 0 0;color:var(--muted);font-size:13.5px}
+.shot-wrap{margin:48px 0 0}
+
+/* window frame */
+.window{margin:0;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--panel);box-shadow:var(--shadow)}
+.window .chrome{display:flex;gap:7px;height:30px;align-items:center;padding:0 14px;background:var(--panel);border-bottom:1px solid var(--line)}
+.window .chrome i{width:11px;height:11px;border-radius:50%;background:var(--line)}
+.window.dark{background:#1b1b1b;border-color:#3a3a3a}
+.window.dark .chrome{background:#1b1b1b;border-bottom-color:#3a3a3a}
+.window.dark .chrome i{background:#3a3a3a}
+.shot-dark{display:none}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]) .shot-light{display:none}
+  :root:not([data-theme="light"]) .shot-dark{display:block}
+}
+:root[data-theme="dark"] .shot-light{display:none}
+:root[data-theme="dark"] .shot-dark{display:block}
+:root[data-theme="light"] .shot-light{display:block}
+:root[data-theme="light"] .shot-dark{display:none}
+figcaption{font-size:13px;color:var(--muted);margin-top:12px}
+
+/* sections */
+section{padding:72px 0}
+@media (min-width:720px){section{padding:104px 0}}
+section+section{border-top:1px solid var(--line)}
+h2{font-family:var(--serif);font-weight:700;font-size:clamp(1.8rem,4.4vw,2.8rem);line-height:1.15;letter-spacing:-.015em;margin:0 0 14px}
+.sub{color:var(--muted);font-size:1.1rem;max-width:40em;margin:0 0 48px}
+h3{font-size:1.1rem;margin:0 0 8px;line-height:1.35}
+p{margin:0 0 12px}
+
+.row{display:grid;gap:28px;align-items:center;margin-bottom:72px}
+.row:last-of-type{margin-bottom:56px}
+@media (min-width:900px){
+  .row{grid-template-columns:5fr 7fr;gap:56px}
+  .row.flip{grid-template-columns:7fr 5fr}
+  .row.flip .copy{order:2}
+}
+.row .copy p{color:var(--muted);margin:0}
+.row .copy h3{font-family:var(--serif);font-size:1.6rem;letter-spacing:-.01em}
+
+.cards{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr))}
+.card{border:1px solid var(--line);border-radius:14px;padding:22px;background:var(--panel)}
+.card p{color:var(--muted);margin:0;font-size:15px}
+.more{margin:40px 0 0;color:var(--muted);font-size:15px}
+.more li{margin:6px 0}
+.more ul{padding-left:1.2em;margin:0}
+kbd{font:12px var(--mono);border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:1px 6px;background:var(--paper);color:var(--ink)}
+
+/* appearance */
+.theme-box{display:flex;flex-wrap:wrap;align-items:center;gap:20px;border:1px solid var(--line);border-radius:14px;padding:22px;background:var(--panel)}
+.theme-box p{margin:0;color:var(--muted);flex:1 1 260px}
+.seg.big button{font-size:15px;padding:6px 18px;min-height:40px}
+
+/* privacy / get */
+.facts{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));margin:0;padding:0;list-style:none}
+.facts li{border-top:2px solid var(--primary);padding-top:14px}
+.facts strong{display:block;font-size:1.05rem;margin-bottom:6px}
+.facts span{color:var(--muted);font-size:15px}
+
+.get{display:grid;gap:40px}
+@media (min-width:900px){.get{grid-template-columns:5fr 7fr;gap:64px}}
+.get .req{color:var(--muted);font-size:15px;margin:24px 0 0}
+.get .req li{margin:6px 0}
+.get ul{padding-left:1.2em;margin:0}
+ol.steps{margin:0;padding:0;list-style:none;counter-reset:s;display:grid;gap:14px}
+ol.steps li{counter-increment:s;display:grid;grid-template-columns:34px 1fr;gap:12px;align-items:start}
+ol.steps li::before{content:counter(s);display:grid;place-items:center;width:34px;height:34px;border-radius:50%;background:var(--wash);color:var(--ink);font-weight:700;font-size:14px}
+ol.steps b{display:block}
+ol.steps span{color:var(--muted);font-size:15px}
+h3.small{font-size:1rem;color:var(--muted);font-weight:600;margin:0 0 16px}
+
+footer{border-top:1px solid var(--line);padding:40px 0 56px;color:var(--muted);font-size:14px}
+footer .wrap{display:flex;flex-wrap:wrap;gap:12px 28px;align-items:center;justify-content:space-between}
+footer b{color:var(--ink);font-family:var(--serif);font-size:1.1rem}
+</style>
+</head>
+<body>
+<a class="skip" href="#main" data-zh="跳到正文">Skip to content</a>
+
+<header class="top" id="top">
+  <div class="wrap bar">
+    <a class="brand" href="#" aria-label="GitViz"><img src="img/icon.svg" width="30" height="30" alt="">GitViz</a>
+    <nav class="links" aria-label="Sections">
+      <a href="#features" data-zh="功能">Features</a>
+      <a href="#appearance" data-zh="外观">Appearance</a>
+      <a href="#privacy" data-zh="隐私">Privacy</a>
+    </nav>
+    <a class="btn primary sm" data-dl href="#get"><span class="when-ready" data-zh="下载" >Download</span><span class="when-soon" data-zh="即将上线">Coming soon</span></a>
+    <div class="seg" role="group" aria-label="Language" data-zh-label="语言">
+      <button type="button" data-lang="en" lang="en" aria-pressed="true">EN</button>
+      <button type="button" data-lang="zh" lang="zh-Hans" aria-pressed="false">中文</button>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+  <div class="wrap">
+    <div class="hero">
+      <h1><span data-zh="先看清结果，再动手">Know what Git will do, before it does it</span><span class="dot">.</span></h1>
+      <p class="lead" data-zh="GitViz 是一款 Mac 上的 Git 客户端：用清晰的分支图呈现历史，合并、变基、重置在真正改动仓库之前先给你预览。免费，本地运行，无需账号。">GitViz is a Git client for Mac. It shows your history as a clear graph and previews merges, rebases and resets before they touch your repository. Free, local, no account.</p>
+      <div class="cta">
+        <a class="btn primary" data-dl href="#get"><span class="when-ready" data-zh="下载 Mac 版">Download for Mac</span><span class="when-soon" data-zh="即将上线">Coming soon</span></a>
+        <a class="btn" href="#features" data-zh="了解功能">See what it does</a>
+      </div>
+      <p class="meta" data-zh="免费 · macOS · 需要 Git 2.50 或更新版本 · 版本 <span class='ver'></span>">Free · macOS · Needs Git 2.50 or newer · Version <span class="ver"></span></p>
+
+      <div class="shot-wrap">
+        <figure class="window">
+          <div class="chrome" aria-hidden="true"><i></i><i></i><i></i></div>
+          <img class="shot-light" src="img/main-light.png" width="2000" height="1219" alt="GitViz main window in light mode: a colored branch graph, the commit list, and the selected commit's changes and diff below." data-zh-alt="GitViz 主窗口（浅色）：彩色分支图、提交列表，以及所选提交的改动和 diff。">
+          <img class="shot-dark" src="img/main-dark.png" width="2000" height="1219" alt="GitViz main window in dark mode: a colored branch graph, the commit list, and the selected commit's changes and diff below." data-zh-alt="GitViz 主窗口（深色）：彩色分支图、提交列表，以及所选提交的改动和 diff。">
+        </figure>
+      </div>
+    </div>
+  </div>
+
+  <section id="features">
+    <div class="wrap">
+      <h2><span data-zh="看得见，预览得了，撤得回">See it. Preview it. Undo it</span><span class="dot">.</span></h2>
+      <p class="sub" data-zh="分支图告诉你发生了什么，预览告诉你将要发生什么，恢复点让出错也不要紧。">The graph shows what happened. Previews show what will happen. Recovery points make mistakes survivable.</p>
+
+      <div class="row">
+        <div class="copy">
+          <h3 data-zh="暂存可以细到一行">Stage down to a single line</h3>
+          <p data-zh="点击代码块标题或单独的增删行，只暂存这次提交真正需要的内容。统一和左右对比两种视图共用同一份选择。">Click a hunk header or individual +/− lines to stage exactly what belongs in this commit. Unified and side-by-side diffs share the same selection.</p>
+        </div>
+        <figure class="window dark">
+          <div class="chrome" aria-hidden="true"><i></i><i></i><i></i></div>
+          <img src="img/staging-dark.png" width="1400" height="881" loading="lazy" decoding="async" alt="The Changes view: unstaged and staged files on the left, a diff on the right, and a commit message box at the bottom." data-zh-alt="改动页：左侧是未暂存和已暂存的文件，右侧是 diff，底部是提交说明。">
+        </figure>
+      </div>
+
+      <div class="row flip">
+        <div class="copy">
+          <h3 data-zh="学会每一次点击背后的命令">Learn the command behind every click</h3>
+          <p data-zh="在设置里开启教学模式，每次操作后都会显示实际执行的 Git 命令、简短说明和复制按钮，URL 里的凭证会被隐藏。界面也可以随时在英文和中文之间切换。">Turn on Show Git commands in Settings and GitViz shows the actual Git command it ran, with a short explanation and a copy button. Credentials in URLs are hidden. The interface also switches between English and 中文 at any time.</p>
+        </div>
+        <figure class="window dark">
+          <div class="chrome" aria-hidden="true"><i></i><i></i><i></i></div>
+          <img src="img/settings-dark.png" width="1400" height="820" loading="lazy" decoding="async" alt="GitViz settings: language, theme, commit row height, default diff view and the Show Git commands switch." data-zh-alt="GitViz 设置页：语言、主题、提交行高、默认 diff 视图，以及显示 Git 命令的开关。">
+        </figure>
+      </div>
+
+      <div class="cards">
+        <div class="card">
+          <h3 data-zh="操作前先预览">Preview before you act</h3>
+          <p data-zh="合并、变基、cherry-pick 和重置会先在一份隔离的副本里演练。你能看到结果的分支图和文件改动，仓库中途有变化时会提醒你。">Merge, rebase, cherry-pick and reset are rehearsed in an isolated copy first. See the resulting graph and file changes; GitViz warns you if the repository changed in the meantime.</p>
+        </div>
+        <div class="card">
+          <h3 data-zh="恢复点，随时退回">Recovery points</h3>
+          <p data-zh="有风险的操作前，GitViz 会保存一个恢复点，默认保留 30 天或最多 2 GiB，让你能回到操作之前。">Before risky operations GitViz saves a recovery point, kept for 30 days or up to 2 GiB by default, so you can get back to where you were.</p>
+        </div>
+        <div class="card">
+          <h3 data-zh="拖一下就能合并或变基">Drag to merge or rebase</h3>
+          <p data-zh="把一个分支拖到另一个分支上，选择合并或变基，先看预览，确认后才会执行。">Drag one branch onto another, choose merge or rebase, and review the preview before anything changes.</p>
+        </div>
+        <div class="card">
+          <h3 data-zh="三方对比解决冲突">Three-way conflict resolution</h3>
+          <p data-zh="同时看到共同祖先和双方的内容，按块选择保留哪一边，或直接编辑整个文件。切换文件不会丢失草稿。">See the common ancestor and both sides, pick a side block by block, or edit the whole file. Drafts survive switching between files.</p>
+        </div>
+        <div class="card">
+          <h3 data-zh="跟着那一行追溯下去">Blame that follows the line</h3>
+          <p data-zh="一行代码可以一路追溯，经过重命名和更早的版本，并用前进、后退在每一步之间跳转。">Trace a line back through renames and earlier versions, and move between steps with back and forward navigation.</p>
+        </div>
+        <div class="card">
+          <h3 data-zh="交互式编辑历史">Edit history interactively</h3>
+          <p data-zh="对一段线性提交（最多 500 条）重排、改说明、合并、丢弃，先在隔离环境里预览，出问题可以中止或整次恢复。">Reorder, reword, squash, fixup or drop up to 500 commits on a linear range, with an isolated preview and a way to abort or restore.</p>
+        </div>
+        <div class="card">
+          <h3 data-zh="始终清晰的分支图">A graph that stays readable</h3>
+          <p data-zh="每条分支在图、标签和侧边栏里始终是同一种颜色；悬停某条分支，只点亮这一条线。几万个提交也分页顺畅加载。">Every branch keeps its own color across the graph, labels and sidebar. Hover a branch to light up just that line. Tens of thousands of commits load page by page.</p>
+        </div>
+        <div class="card">
+          <h3 data-zh="历史洞察">Insights into your history</h3>
+          <p data-zh="提交热力图、贡献者和改动最频繁的文件，可选最近 30、90、365 天或全部历史。">A commit heatmap, top contributors and the files that change most, over the last 30, 90 or 365 days, or all time.</p>
+        </div>
+      </div>
+
+      <div class="more">
+        <ul>
+          <li data-zh="深色和浅色两套主题，英文和中文两种界面语言。">Light and dark themes, in English or 中文.</li>
+          <li data-zh="Kotlin、Java、JavaScript、TypeScript、JSON 和 Python 的 diff 语法高亮。">Syntax-highlighted diffs for Kotlin, Java, JavaScript, TypeScript, JSON and Python.</li>
+          <li data-zh="键盘优先：<kbd>j</kbd> / <kbd>k</kbd> 移动，<kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>P</kbd> 打开命令面板。"><span>Keyboard first: <kbd>j</kbd> / <kbd>k</kbd> to move, <kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>P</kbd> for the command palette.</span></li>
+          <li data-zh="沿用你现有的 SSH 密钥和钥匙串配置。">Works with your existing SSH keys and keychain.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="appearance">
+    <div class="wrap">
+      <h2><span data-zh="浅色、深色，或跟随系统">Light, dark, or follow your system</span><span class="dot">.</span></h2>
+      <p class="sub" data-zh="GitViz 提供浅色和深色两套外观。在这里试试，这个页面也会随之切换。">GitViz comes in light and dark. Try it here and this page switches too.</p>
+      <div class="theme-box">
+        <div class="seg big" role="group" aria-label="Page appearance" data-zh-label="页面外观">
+          <button type="button" data-theme-set="light" aria-pressed="false" data-zh="浅色">Light</button>
+          <button type="button" data-theme-set="dark" aria-pressed="false" data-zh="深色">Dark</button>
+          <button type="button" data-theme-set="system" aria-pressed="true" data-zh="跟随系统">System</button>
+        </div>
+        <p data-zh="顶部的主窗口截图也会跟着换成对应的外观。">The screenshot at the top follows along.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="privacy">
+    <div class="wrap">
+      <h2><span data-zh="你的仓库，只属于你">Your repositories stay yours</span><span class="dot">.</span></h2>
+      <p class="sub" data-zh="GitViz 在你的 Mac 上读取本地仓库，用系统的 Git 完成所有写操作。">GitViz reads your local repositories on your Mac and uses your system Git for every change.</p>
+      <ul class="facts">
+        <li><strong data-zh="无需账号">No account</strong><span data-zh="打开一个文件夹就能开始。">Open a folder and start.</span></li>
+        <li><strong data-zh="没有统计">No analytics</strong><span data-zh="只有在你执行获取、拉取、推送或克隆时才会联网，并使用系统的 Git。">GitViz reaches the network only when you fetch, pull, push or clone, using your system Git.</span></li>
+        <li><strong data-zh="密码不经过 GitViz">Passwords never pass through GitViz</strong><span data-zh="远程需要验证时，由 Git 和 ssh 弹出 macOS 系统对话框；GitViz 看不到，也不保存。">When a remote asks for credentials, Git and SSH show the standard macOS prompts. GitViz neither sees nor stores them.</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="get">
+    <div class="wrap get">
+      <div>
+        <h2><span data-zh="获取 GitViz">Get GitViz</span><span class="dot">.</span></h2>
+        <p class="sub" style="margin-bottom:28px" data-zh="免费下载，适用于 Mac。">Free to download, for Mac.</p>
+        <a class="btn primary" data-dl href="#get"><span class="when-ready" data-zh="下载 Mac 版">Download for Mac</span><span class="when-soon" data-zh="即将上线">Coming soon</span></a>
+        <ul class="req">
+          <li data-zh="macOS。">macOS.</li>
+          <li data-zh="需要已安装 Git 2.50 或更新版本。更旧的版本仍可浏览历史，但写操作会提示你升级。">Git 2.50 or newer installed. Older versions can still browse history, but changes will ask you to upgrade.</li>
+          <li data-zh="当前版本 <span class='ver'></span>。">Current version <span class="ver"></span>.</li>
+        </ul>
+      </div>
+      <div>
+        <h3 class="small" data-zh="第一次打开">Opening GitViz for the first time</h3>
+        <ol class="steps">
+          <li><div><b data-zh="把 GitViz 拖进「应用程序」">Drag GitViz to Applications</b><span data-zh="打开下载的磁盘映像，把 GitViz 拖到「应用程序」文件夹。">Open the downloaded disk image and drag GitViz into your Applications folder.</span></div></li>
+          <li><div><b data-zh="打开 GitViz">Open GitViz</b><span data-zh="应用尚未经 Apple 公证，macOS 可能提示无法验证开发者。">It isn't notarized by Apple yet, so macOS may say it can't verify the developer.</span></div></li>
+          <li><div><b data-zh="允许打开一次">Allow it once</b><span data-zh="进入「系统设置 → 隐私与安全性」，向下滚动并选择「仍要打开」。只需要做这一次。">Go to System Settings → Privacy &amp; Security, scroll down and choose Open Anyway. You only need to do this once.</span></div></li>
+        </ol>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div><b>GitViz</b> &nbsp; <span data-zh="让 Git 看得见。">Git, made visible.</span></div>
+    <a href="https://vambda.com" data-zh="回到 V. 的作品网站">Back to V.</a>
+  </div>
+</footer>
+
+<script>
+(function () {
+  var root = document.documentElement;
+  var store = {
+    get: function (k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+    set: function (k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  };
+
+  /* ---- download button: 地址在 <html data-download> ---- */
+  var url = (root.getAttribute('data-download') || '').trim();
+  var dls = document.querySelectorAll('[data-dl]');
+  root.setAttribute('data-ready', url ? '1' : '0');
+  Array.prototype.forEach.call(dls, function (a) {
+    if (url) { a.setAttribute('href', url); }
+    else { a.removeAttribute('href'); a.setAttribute('aria-disabled', 'true'); }
+  });
+  var version = root.getAttribute('data-version') || '';
+  function fillVersion() {
+    Array.prototype.forEach.call(document.querySelectorAll('.ver'), function (el) { el.textContent = version; });
+  }
+
+  /* ---- language: English default, 中文 optional ---- */
+  var ZH = {
+    title: 'GitViz — 产品介绍',
+    desc: 'GitViz 是一款免费的 Mac Git 客户端。用清晰的分支图呈现历史，合并、变基、重置在真正改动仓库之前先给你预览。'
+  };
+  var titleEn = document.title;
+  var descEl = document.getElementById('meta-desc');
+  var descEn = descEl ? descEl.getAttribute('content') : '';
+  var nodes = document.querySelectorAll('[data-zh],[data-zh-alt],[data-zh-label]');
+  Array.prototype.forEach.call(nodes, function (el) {
+    if (el.hasAttribute('data-zh')) el.setAttribute('data-en', el.innerHTML);
+    if (el.hasAttribute('data-zh-alt')) el.setAttribute('data-en-alt', el.getAttribute('alt'));
+    if (el.hasAttribute('data-zh-label')) el.setAttribute('data-en-label', el.getAttribute('aria-label'));
+  });
+  function setLang(lang, save) {
+    var zh = lang === 'zh';
+    Array.prototype.forEach.call(nodes, function (el) {
+      if (el.hasAttribute('data-zh')) el.innerHTML = zh ? el.getAttribute('data-zh') : el.getAttribute('data-en');
+      if (el.hasAttribute('data-zh-alt')) el.setAttribute('alt', zh ? el.getAttribute('data-zh-alt') : el.getAttribute('data-en-alt'));
+      if (el.hasAttribute('data-zh-label')) el.setAttribute('aria-label', zh ? el.getAttribute('data-zh-label') : el.getAttribute('data-en-label'));
+    });
+    root.setAttribute('lang', zh ? 'zh-Hans' : 'en');
+    document.title = zh ? ZH.title : titleEn;
+    if (descEl) descEl.setAttribute('content', zh ? ZH.desc : descEn);
+    Array.prototype.forEach.call(document.querySelectorAll('[data-lang]'), function (b) {
+      b.setAttribute('aria-pressed', String(b.getAttribute('data-lang') === lang));
+    });
+    fillVersion();
+    if (save) store.set('gitviz-lang', lang);
+  }
+  var q = /[?&]lang=(en|zh)\b/.exec(location.search);
+  var initial = q ? q[1] : store.get('gitviz-lang');
+  setLang(initial === 'zh' ? 'zh' : 'en', false);
+  Array.prototype.forEach.call(document.querySelectorAll('[data-lang]'), function (b) {
+    b.addEventListener('click', function () { setLang(b.getAttribute('data-lang'), true); });
+  });
+
+  /* ---- theme: light / dark / follow system ---- */
+  function setTheme(mode, save) {
+    if (mode === 'light' || mode === 'dark') root.setAttribute('data-theme', mode);
+    else { root.removeAttribute('data-theme'); mode = 'system'; }
+    Array.prototype.forEach.call(document.querySelectorAll('[data-theme-set]'), function (b) {
+      b.setAttribute('aria-pressed', String(b.getAttribute('data-theme-set') === mode));
+    });
+    if (save) store.set('gitviz-theme', mode);
+  }
+  setTheme(store.get('gitviz-theme') || 'system', false);
+  Array.prototype.forEach.call(document.querySelectorAll('[data-theme-set]'), function (b) {
+    b.addEventListener('click', function () { setTheme(b.getAttribute('data-theme-set'), true); });
+  });
+
+  /* ---- header border once scrolled ---- */
+  var top = document.getElementById('top');
+  function onScroll() { top.classList.toggle('scrolled', window.scrollY > 4); }
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+})();
+</script>
+</body>
+</html>
